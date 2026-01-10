@@ -1,0 +1,7 @@
+#PATH-POINTS-START Path
+-46.498,15.000,120
+-13.596,17.929,120
+-49.853,45.146,120
+-49.376,45.036,120
+-24.153,34.838,120
+#PATH.JERRYIO-DATA {"appVersion":"0.10.0","format":"path.jerryio v0.1","gc":{"robotWidth":30,"robotHeight":30,"robotIsHolonomic":false,"showRobot":false,"uol":1,"pointDensity":2,"controlMagnetDistance":5,"fieldImage":{"displayName":"V5RC 2026 - Push Back","signature":"V5RC-PushBack-H2H-TopDownHighlighted-TileColor66_71","origin":{"__type":"built-in"}},"coordinateSystem":"VEX Gaming Positioning System"},"paths":[]}

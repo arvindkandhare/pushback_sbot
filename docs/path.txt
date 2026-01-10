@@ -1,0 +1,64 @@
+=== SBOT INITIALIZE START ===
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+Initializing LemLib for sbot...
+Calibrating sbot chassis (IMU/odometry)...
+Sbot LemLib initialization complete.
+SBOT: subsystems created; defaults applied
+SBOT: development mode (no competition control). Auto select open for 10s.
+SBOT AUTO: select 0 (DISABLED) [L/R to change, A to confirm]
+SBOT: auto select... 10s left
+SBOT AUTO: select 1 (Red Left) [L/R to change, A to confirm]
+SBOT: auto select... 9s left
+SBOT AUTO: READY 1 (Red Left)
+SBOT: auto mode confirmed
+SBOT: DEV MODE running selected autonomous mode: 1
+SBOT AUTON: AWP HALF (RED LEFT)
+#PATH-POINTS-START Path
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+SBOT POSE [awp start]: x=-0.00 y=0.00 th=-0.05
+-46.498,15.000,120
+AWP STAGE 1: cluster collect
+WARNING - pros.serial.devices.vex.v5_user_device:read - Could not decode bytes: 66726f6e742073636f726529 - pros-cli version:3.5.6
+
+SBOT WAIT [match.turn_to]: 390 ms
+CENTER LOWER contact->pose: contact(6.00,37.50) heading=45.0 front=7.50 => pose(0.70,32.20)
+LOW GOAL moveToPose: from(-10.87,29.63,45.7) to(0.70,32.20,45.0) d=(11.57,2.57)
+SBOT WAIT [match.approach_low_goal]: 440 ms
+LOW GOAL after moveToPose: at(-6.26,30.22,98.3) err=(6.96,1.98)
+SBOT WAIT [match.turn_to]: 360 ms
+SBOT WAIT [drive_relative]: 550 ms
+SBOT POSE [after center lower (front)]: x=-2.93 y=32.90 th=40.87
+-13.596,17.929,120
+AWP STAGE 3: retreat + face loader
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+RETREAT target: (-33.00, -1.50)
+SBOT WAIT [match.retreat]: 1680 ms
+SBOT PNEU: batch loader EXTEND (ADI C -> 1)
+SBOT WAIT [match.turn_to]: 510 ms
+SBOT POSE [after retreat/turn]: x=-30.15 y=-3.35 th=197.34
+-49.853,45.146,120
+SBOT SENSORS [after retreat/turn]: imu.heading=198.96 imu.rotation=198.96 vertRot.pos=-29057.00 vert.in=-5.39
+AWP STAGE 4: loader1 pull
+SBOT WAIT [match.align_line_x]: 380 ms
+TUBE contact->pose: contact(-33.00,-24.50) heading=180.0 frontEff=13.50 => pose(-33.00,-11.00)
+SBOT WAIT [match.turn_to.tube_correct]: 560 ms
+TUBE moveToPose: from(-30.56,-3.47,180.7) to(-33.00,-11.00,180.0) d=(-2.44,-7.53)
+SBOT WAIT [match.approach_tube_pose]: 160 ms
+TUBE after moveToPose: at(-30.60,-3.91,189.5) err=(-2.40,-7.09)
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+SBOT WAIT [drive_relative]: 580 ms
+SBOT POSE [after loader1 (relative)]: x=-30.04 y=-2.88 th=201.86
+-49.376,45.036,120
+AWP STAGE 5: second score
+AWP STAGE 5: LONG GOAL END (near loader)
+SBOT WAIT [drive_relative_stall_exit]: 1250 ms
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+SBOT POSE [after high goal]: x=-19.84 y=22.35 th=198.85
+-24.153,34.838,120
+AWP STAGE 6: end safe
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+SBOT POSE [end safe (no move)]: x=-19.84 y=22.35 th=198.85
+-24.153,34.838,120
+SBOT PNEU: batch loader RETRACT (ADI C -> 0)
+SBOT AUTON: AWP HALF complete
+#PATH.JERRYIO-DATA {"appVersion":"0.10.0","format":"path.jerryio v0.1","gc":{"robotWidth":30,"robotHeight":30,"robotIsHolonomic":false,"showRobot":false,"uol":1,"pointDensity":2,"controlMagnetDistance":5,"fieldImage":{"displayName":"V5RC 2026 - Push Back","signature":"V5RC-PushBack-H2H-TopDownHighlighted-TileColor66_71","origin":{"__type":"built-in"}},"coordinateSystem":"VEX Gaming Positioning System"},"paths":[]}
