@@ -24,7 +24,7 @@
 // If this is wrong, you'll see Y drift during in-place turns (rectangle test).
 // Experimental estimate from in-place turn calibration (Test: Turn): ~0.06".
 // If turn-induced drift direction worsens, flip the sign.
-#define SBOT_TRACKING_WHEEL_DISTANCE  0.06
+#define SBOT_TRACKING_WHEEL_DISTANCE  0.085
 
 // ============================================================================
 // GLOBAL LEMLIB OBJECTS (pointers)

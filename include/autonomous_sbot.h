@@ -27,10 +27,11 @@ enum class SbotAutoMode {
     TEST_TURN,
     TEST_INTAKE,
     TEST_INDEXER,
-    TEST_DRIVE_MOVETOPOSE,
-    TEST_MOVETOPOSE_LOW_GOAL_CUSTOM_START,
+    TEST_DRIVE_SHORT,
+    TEST_LOW_GOAL_CUSTOM_START,
     TEST_JERRY_POSE_MONITOR,
-    TEST_FOLLOW_JERRY_PATH
+        TEST_FOLLOW_JERRY_PATH,
+        TEST_POSE_FINDER_X0_LINE_90
 };
 
 class SbotAutoSelector {
@@ -73,13 +74,14 @@ private:
     void runTestSweepToLowGoal();
 
     void runTestDrive();
-    void runTestDriveMoveToPose();
-    void runTestMoveToPoseLowGoalCustomStart();
+    void runTestDriveShort();
+    void runTestLowGoalCustomStart();
     void runTestTurn();
     void runTestIntake();
     void runTestIndexer();
     void runTestJerryPoseMonitor();
     void runTestFollowJerryPath();
+    void runTestPoseFinderX0Line90();
 };
 
 #endif // _SBOT_AUTONOMOUS_SBOT_H_

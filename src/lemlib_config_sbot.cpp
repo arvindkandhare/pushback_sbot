@@ -40,7 +40,7 @@ void initializeSbotLemLib() {
     printf("SBOT BUILD TAG: %s %s\n", __DATE__, __TIME__);
 
     // Keep LemLib logs quiet by default; we selectively enable DEBUG around
-    // specific motions (e.g., moveToPose) from autonomous code when needed.
+    // specific autonomous motions (e.g., turn+drive sequences) when needed.
     lemlib::infoSink()->setLowestLevel(lemlib::Level::WARN);
 
     // ----------------------- Motors & Drivetrain -----------------------

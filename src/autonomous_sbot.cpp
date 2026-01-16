@@ -11,10 +11,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
+#include <cstring>
 
 // LemLib path-follow assets must be declared at global scope.
 ASSET(sbot_awp_half_path_txt);
-ASSET(low_goal_txt);
+ASSET(low_txt);
 
 // Robot geometry (distance from LemLib pose point to bumpers, in inches)
 // Pose point is the drivetrain rotation center. Measured: 7.5" to both bumpers.
@@ -31,8 +34,17 @@ static constexpr double SBOT_BACK_BUMPER_IN = 7.5;
 
 // Canonical Jerry starts (pose-point reference).
 // Red Right is mirrored across the Jerry X axis (Jerry Y is multiplied by -1).
-static constexpr double SBOT_JERRY_START_RL_X = -48.0;
-static constexpr double SBOT_JERRY_START_RL_Y = 16.0;
+static constexpr double SBOT_JERRY_START_RL_X_BASE = -50.0;
+static constexpr double SBOT_JERRY_START_RL_Y_BASE = 11.0;
+
+// Fine adjustments (inches) for on-field calibration.
+// If the robot is consistently ending too far RIGHT (+X in our frame), DECREASE the Y fine adjust.
+// (because ourX = jerry_start_y - jerry_y)
+static constexpr double SBOT_JERRY_START_RL_X_FINE_ADJUST = 0.0;
+static constexpr double SBOT_JERRY_START_RL_Y_FINE_ADJUST = 0.0;
+
+static constexpr double SBOT_JERRY_START_RL_X = SBOT_JERRY_START_RL_X_BASE + SBOT_JERRY_START_RL_X_FINE_ADJUST;
+static constexpr double SBOT_JERRY_START_RL_Y = SBOT_JERRY_START_RL_Y_BASE + SBOT_JERRY_START_RL_Y_FINE_ADJUST;
 static constexpr double SBOT_JERRY_START_RR_X = SBOT_JERRY_START_RL_X;
 static constexpr double SBOT_JERRY_START_RR_Y = -SBOT_JERRY_START_RL_Y;
 
@@ -106,6 +118,20 @@ static constexpr uint32_t SBOT_MIN_SCORE_TIME_MS = 1000;
 
 // Debug aid: print how long each LemLib waitUntilDone() blocks.
 static constexpr bool SBOT_PRINT_WAIT_TIMES = true;
+
+// Runtime stats (best-effort): track how long scoring routines actually take.
+static uint32_t sbot_low_goal_score_total_ms = 0;
+static uint32_t sbot_low_goal_score_count = 0;
+
+// Best-effort autonomous elapsed timing (relative to when the selected auton starts running).
+static bool sbot_auton_elapsed_active = false;
+static uint32_t sbot_auton_elapsed_start_ms = 0;
+
+static void sbot_print_auton_elapsed(const char* label) {
+    if (!sbot_auton_elapsed_active) return;
+    const uint32_t ms = pros::millis() - sbot_auton_elapsed_start_ms;
+    printf("SBOT ELAPSED [%s]: %u ms (%.2f s)\n", label, static_cast<unsigned>(ms), ms / 1000.0);
+}
 
 static void sbot_wait_until_done_timed(const char* label) {
     if (!sbot_chassis) return;
@@ -377,7 +403,7 @@ static void sbot_wait_until_done_or_stalled_near_target_timed(
 
 // Wait for a pose/heading motion to be "good enough" (distance + heading) after a minimum time,
 // or until it completes, or until timeout.
-// This avoids relying on LemLib waitUntilDone() semantics when moveToPose can appear to hang/stall.
+// This avoids relying on LemLib waitUntilDone() semantics when a motion can appear to hang/stall.
 static void sbot_wait_until_pose_close_or_timeout_timed(
     const char* label,
     uint32_t overall_timeout_ms,
@@ -397,7 +423,7 @@ static void sbot_wait_until_pose_close_or_timeout_timed(
     const double last_trace_vert_in0 = sbot_vertical_tracking_wheel ? sbot_vertical_tracking_wheel->getDistanceTraveled() : 0.0;
     double last_trace_vert_in = last_trace_vert_in0;
 
-    // NOTE: LemLib's isInMotion() is not always a reliable indicator for moveToPose/moveToPoint.
+    // NOTE: LemLib's isInMotion() is not always a reliable indicator for motion completion.
     // If it reports false while the robot is still being commanded, we'd skip the loop and fail
     // to cancel the motion on timeout, which looks like "tiny wheel movements forever".
     while (pros::millis() - start < overall_timeout_ms) {
@@ -543,6 +569,59 @@ static bool sbot_turn_to(double heading_deg, uint32_t timeout_ms, bool mirrored_
     sbot_chassis->turnToHeading(target_heading, timeout_ms, params);
     sbot_wait_until_done_timed("turn_to");
     return true;
+}
+
+// Replace a "reach x/y and end at heading" action with a deterministic
+// turn -> translate -> turn sequence.
+static void sbot_turn_point_turn(
+    const char* label,
+    float target_x,
+    float target_y,
+    float target_heading_deg,
+    uint32_t turn_timeout_ms,
+    uint32_t drive_motion_timeout_ms,
+    const lemlib::TurnToHeadingParams& turn_params,
+    const lemlib::MoveToPointParams& drive_params,
+    uint32_t drive_wait_timeout_ms = 0,
+    uint32_t drive_min_time_ms = 0,
+    double drive_close_dist_in = 0.0,
+    double drive_close_heading_deg = 0.0,
+    bool do_pre_turn = true,
+    bool do_post_turn = true
+) {
+    if (!sbot_chassis) return;
+
+    char stage_label[96];
+
+    if (do_pre_turn) {
+        std::snprintf(stage_label, sizeof(stage_label), "%s.pre_turn", label);
+        sbot_chassis->turnToHeading(target_heading_deg, static_cast<int>(turn_timeout_ms), turn_params);
+        sbot_wait_until_done_or_timed_out_timed(stage_label, turn_timeout_ms + 250);
+    }
+
+    std::snprintf(stage_label, sizeof(stage_label), "%s.drive", label);
+    sbot_chassis->moveToPoint(target_x, target_y, static_cast<int>(drive_motion_timeout_ms), drive_params);
+    if (drive_wait_timeout_ms > 0 && drive_close_dist_in > 0.0 && drive_close_heading_deg > 0.0) {
+        sbot_wait_until_pose_close_or_timeout_timed(
+            stage_label,
+            drive_wait_timeout_ms,
+            drive_min_time_ms,
+            {target_x, target_y},
+            drive_close_dist_in,
+            target_heading_deg,
+            drive_close_heading_deg
+        );
+    } else if (drive_wait_timeout_ms > 0) {
+        sbot_wait_until_done_or_timed_out_timed(stage_label, drive_wait_timeout_ms);
+    } else {
+        sbot_wait_until_done_or_timed_out_timed(stage_label, drive_motion_timeout_ms + 250);
+    }
+
+    if (do_post_turn) {
+        std::snprintf(stage_label, sizeof(stage_label), "%s.post_turn", label);
+        sbot_chassis->turnToHeading(target_heading_deg, static_cast<int>(turn_timeout_ms), turn_params);
+        sbot_wait_until_done_or_timed_out_timed(stage_label, turn_timeout_ms + 250);
+    }
 }
 
 static bool sbot_drive_relative(double distance_in, uint32_t timeout_ms, bool forwards = true) {
@@ -953,9 +1032,9 @@ static void sbot_run_match_auto(
         // Lower-goal scoring: add extra time to ensure balls fully clear.
         t.low_goal_score_ms = SBOT_LOW_GOAL_SCORE_TIME_MS + 750;
         // Use a measured front-bumper contact point for the Center Goal.
-        // Source of truth (Jerry field coords, inches): (-6, 6)
+        // Source of truth (Jerry field coords, inches): (-9, 9)
         t.use_low_goal_contact = true;
-        t.low_goal_contact = sbot_from_jerry(-6.0, 6.0);
+        t.low_goal_contact = sbot_from_jerry(-9.0, 9.0);
 
         // Center Goal – Middle (back-score).
         t.mid_goal_approach = center_middle_approach;
@@ -1001,8 +1080,8 @@ static void sbot_run_match_auto(
         // Primary behavior uses field feature contact points + offsets.
         t.tube1 = {-33, -11.0};
         t.tube1_pulloff = {-33, -8.0};
-        // Wait at the tube long enough to load.
-        t.tube_pull_ms = 2000;
+        // Time budget: target ~1s for match load.
+        t.tube_pull_ms = 1000;
 
         // Loader contact point (field feature, Jerry coords): (-71, 48).
         // This is where the FRONT of the robot/loader should contact the match loader.
@@ -1041,7 +1120,7 @@ static void sbot_run_match_auto(
         t.post_score_retreat_point = sbot_from_jerry(-48.0, -48.0);
 
         // Center Goal contacts mirrored.
-        if (t.use_low_goal_contact) t.low_goal_contact = sbot_from_jerry(-6.0, -6.0);
+        if (t.use_low_goal_contact) t.low_goal_contact = sbot_from_jerry(-9.0, -9.0);
         if (t.use_mid_goal_contact) t.mid_goal_contact = sbot_from_jerry(-9.0, 9.0);
 
         // Tube contact mirrored: (-71, 48) -> (-71, -48)
@@ -1121,7 +1200,7 @@ static void sbot_run_match_auto(
             // Focused test mode: assume we are starting from the end of the cluster sweep.
             // We reset odom/IMU to that known pose so Stage 2 runs identically to match auton.
             printf("SBOT AUTON TEST: start from cluster sweep completion\n");
-            const SbotPoint sweep_pose = sbot_apply_alliance_transform_only(t.cluster1_sweep, alliance_);
+            const SbotPoint sweep_pose = sbot_apply_alliance_transform_only(t.cluster1, alliance_);
             const double sweep_heading = sbot_apply_alliance_transform_heading_only(0.0, alliance_);
             sbot_zero_pose_and_sensors(sweep_pose.x, sweep_pose.y, sweep_heading);
             sbot_print_pose("test start (after sweep)");
@@ -1185,39 +1264,52 @@ static void sbot_run_match_auto(
             // 1) reach cluster
             {
                 const SbotPoint cluster_target = sbot_apply_alliance_transform_only(t.cluster1, alliance_);
+                // Physical tuning: stop slightly short of the cluster so we don't blast the balls out,
+                // then deploy the match loader and do a slower sweep through.
+                SbotPoint cluster_stop = cluster_target;
+                cluster_stop.y -= 4.0;
                 const double cluster1_heading_deg = 0.0;
                 const double cluster_heading = sbot_apply_alliance_transform_heading_only(cluster1_heading_deg, alliance_);
 
-                lemlib::MoveToPoseParams params1;
-                params1.forwards = true;
-                params1.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                params1.minSpeed = 0;
-                params1.earlyExitRange = 0;
-                params1.lead = 0.3;
-                sbot_chassis->moveToPose(cluster_target.x, cluster_target.y, cluster_heading, t.drive_timeout_ms, params1);
+                lemlib::TurnToHeadingParams turnParams;
+                turnParams.maxSpeed = SBOT_MATCH_TURN_MAX_SPEED;
+                turnParams.minSpeed = 0;
 
-                // Use pose-close wait (with trace) so logs show *when* we converged (or not).
-                // Heading tolerance is loose here; we mainly care about reaching the cluster point.
-                sbot_wait_until_pose_close_or_timeout_timed(
+                lemlib::MoveToPointParams driveParams;
+                driveParams.forwards = true;
+                // Single-phase approach: lower maxSpeed to soften the arrival (no two-step split).
+                driveParams.maxSpeed = 55;
+                driveParams.minSpeed = 0;
+                driveParams.earlyExitRange = 0;
+
+                sbot_turn_point_turn(
                     "match.cluster.reach",
+                    cluster_stop.x,
+                    cluster_stop.y,
+                    cluster_heading,
+                    t.turn_timeout_ms,
+                    t.drive_timeout_ms,
+                    turnParams,
+                    driveParams,
                     t.drive_timeout_ms,
                     250,
-                    {cluster_target.x, cluster_target.y},
                     1.5,
-                    cluster_heading,
-                    15.0
+                    15.0,
+                    false
                 );
             }
 
             // 2) extend loader
             if (sbot_batch_loader) {
                 sbot_batch_loader->extend();
-                pros::delay(120);
+                // Let the loader fully deploy before we begin sweeping, to avoid kicking balls.
+                pros::delay(250);
             }
 
-            // 3) sweep through the cluster while collecting (temporarily disabled for testing)
+            // 3) sweep through the cluster while collecting
             // Keep the loader extended through the upcoming turn; we retract after the turn toward center goals.
-            // drive_to_speed(t.cluster1_sweep, true /* forwards */, SBOT_MATCH_MAX_SPEED, "match.cluster.sweep");
+            // IMPORTANT: sweep should END at the cluster point so downstream geometry/angle assumptions hold.
+            drive_to_speed(t.cluster1, true /* forwards */, 45, "match.cluster.sweep");
 
             // 4) collect dwell
             sbot_run_for_ms(t.cluster_collect_ms);
@@ -1234,7 +1326,7 @@ static void sbot_run_match_auto(
         if (low_goal_case) {
             printf("AWP STAGE 2: CENTER LOWER (front score)\n");
             if (stage2_skip_pre_turn) {
-                printf("AWP STAGE 2: skipping pre-turn (moveToPose handles turn+drive)\n");
+                printf("AWP STAGE 2: skipping pre-turn (approach sequence handles turn+drive)\n");
                 // If we skip the explicit pre-turn, retract before approaching the goal for safety.
                 if (sbot_batch_loader) {
                     sbot_batch_loader->retract();
@@ -1300,14 +1392,17 @@ static void sbot_run_match_auto(
                 // Use pose pursuit for center scoring.
                 // Break out based on time + distance (and heading), rather than stall detection.
                 {
-                    lemlib::MoveToPoseParams goalParams;
-                    goalParams.forwards = true;
-                    goalParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
+                    lemlib::TurnToHeadingParams turnParams;
+                    turnParams.maxSpeed = SBOT_MATCH_TURN_MAX_SPEED;
+                    turnParams.minSpeed = 0;
+
+                    lemlib::MoveToPointParams driveParams;
+                    driveParams.forwards = true;
+                    driveParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
                     // Keep minSpeed at 0 so LemLib uses the most accurate exit conditions.
                     // (Non-zero minSpeed can cause early-exit behavior that looks like "bailing".)
-                    goalParams.minSpeed = 0;
-                    goalParams.earlyExitRange = 0;
-                    goalParams.lead = 0.3;
+                    driveParams.minSpeed = 0;
+                    driveParams.earlyExitRange = 0;
 
                     // IMPORTANT: give LemLib a longer internal timeout than our wait loop.
                     // Otherwise LemLib can stop the motion at exactly the wait timeout while still far away.
@@ -1315,14 +1410,18 @@ static void sbot_run_match_auto(
                     const uint32_t goal_motion_timeout_ms = 9000;
 
                     sbot_lemlib_debug_window_begin("match.approach_low_goal_pose");
-                    sbot_chassis->moveToPose(target.x, target.y, goal_heading, goal_motion_timeout_ms, goalParams);
-                    sbot_wait_until_pose_close_or_timeout_timed(
+                    sbot_turn_point_turn(
                         "match.approach_low_goal_pose",
+                        target.x,
+                        target.y,
+                        goal_heading,
+                        t.turn_timeout_ms,
+                        goal_motion_timeout_ms,
+                        turnParams,
+                        driveParams,
                         goal_wait_timeout_ms,
                         400,
-                        {target.x, target.y},
                         1.25,
-                        goal_heading,
                         6.0
                     );
                     sbot_lemlib_debug_window_end("match.approach_low_goal_pose");
@@ -1335,20 +1434,23 @@ static void sbot_run_match_auto(
                         const double dist = std::sqrt(dx * dx + dy * dy);
                         if (dist > 3.0) {
                             printf("LOW GOAL retry: dist still %.2f in\n", dist);
-                            lemlib::MoveToPoseParams retry = goalParams;
-                            retry.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                            retry.lead = 0.25;
+                            lemlib::MoveToPointParams retryDrive = driveParams;
+                            retryDrive.maxSpeed = 90;
                             sbot_print_jerry_target("low_goal_pose_target.retry", target.x, target.y);
 
                             sbot_lemlib_debug_window_begin("match.approach_low_goal_pose.retry");
-                            sbot_chassis->moveToPose(target.x, target.y, goal_heading, 5000, retry);
-                            sbot_wait_until_pose_close_or_timeout_timed(
+                            sbot_turn_point_turn(
                                 "match.approach_low_goal_pose.retry",
+                                target.x,
+                                target.y,
+                                goal_heading,
+                                t.turn_timeout_ms,
+                                5000,
+                                turnParams,
+                                retryDrive,
                                 1100,
                                 300,
-                                {target.x, target.y},
                                 1.25,
-                                goal_heading,
                                 6.0
                             );
                             sbot_lemlib_debug_window_end("match.approach_low_goal_pose.retry");
@@ -1366,7 +1468,7 @@ static void sbot_run_match_auto(
                     const double dy1 = target.y - pose1.y;
                     const double dist1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
                     printf(
-                        "LOW GOAL after moveToPose: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f) dist=%.2f\n",
+                        "LOW GOAL after turn+moveToPoint+turn: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f) dist=%.2f\n",
                         pose1.x,
                         pose1.y,
                         pose1.theta,
@@ -1403,10 +1505,26 @@ static void sbot_run_match_auto(
             }
 
             // Ensure we spend at least 1s actively scoring.
-            sbot_score_low_for(std::max<uint32_t>(t.low_goal_score_ms, 1000));
+            {
+                const uint32_t requested_ms = std::max<uint32_t>(t.low_goal_score_ms, 1000);
+                const uint32_t score_start_ms = pros::millis();
+                sbot_score_low_for(requested_ms);
+                const uint32_t score_dur_ms = pros::millis() - score_start_ms;
+                sbot_low_goal_score_total_ms += score_dur_ms;
+                sbot_low_goal_score_count += 1;
+                printf(
+                    "SBOT SCORE LOW: %u ms (requested %u ms, avg %u ms over %u runs)\n",
+                    static_cast<unsigned>(score_dur_ms),
+                    static_cast<unsigned>(requested_ms),
+                    static_cast<unsigned>(sbot_low_goal_score_total_ms / sbot_low_goal_score_count),
+                    static_cast<unsigned>(sbot_low_goal_score_count)
+                );
+            }
+            sbot_print_auton_elapsed("low_goal_score_done");
             // Reasonable wait to let the last ball clear.
             pros::delay(200);
             sbot_print_pose("after center lower (front)");
+            sbot_print_jerry_pose("after center lower (front)");
         } else {
             printf("AWP STAGE 2: CENTER MIDDLE (back score)\n");
             turn_to(t.mid_goal_heading_deg);
@@ -1440,12 +1558,15 @@ static void sbot_run_match_auto(
 
                 // Use pose pursuit so we converge x/y AND end square to the goal.
                 {
-                    lemlib::MoveToPoseParams poseParams;
-                    poseParams.forwards = false; // back into the goal
-                    poseParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                    poseParams.minSpeed = 0;
-                    poseParams.earlyExitRange = 0;
-                    poseParams.lead = 0.35;
+                    lemlib::TurnToHeadingParams turnParams;
+                    turnParams.maxSpeed = SBOT_MATCH_TURN_MAX_SPEED;
+                    turnParams.minSpeed = 0;
+
+                    lemlib::MoveToPointParams driveParams;
+                    driveParams.forwards = false; // back into the goal
+                    driveParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
+                    driveParams.minSpeed = 0;
+                    driveParams.earlyExitRange = 0;
 
                     const uint32_t goal_wait_timeout_ms = t.drive_timeout_ms;
                     const uint32_t goal_motion_timeout_ms = 9000;
@@ -1454,7 +1575,7 @@ static void sbot_run_match_auto(
                         const double dx = mid_target.x - pose0.x;
                         const double dy = mid_target.y - pose0.y;
                         printf(
-                            "MID GOAL moveToPose: from(%.2f,%.2f,%.1f) to(%.2f,%.2f,%.1f) d=(%.2f,%.2f)\n",
+                                "MID GOAL turn+moveToPoint+turn: from(%.2f,%.2f,%.1f) to(%.2f,%.2f,%.1f) d=(%.2f,%.2f)\n",
                             pose0.x,
                             pose0.y,
                             pose0.theta,
@@ -1469,14 +1590,18 @@ static void sbot_run_match_auto(
                     sbot_print_jerry_target("mid_goal_pose_target", mid_target.x, mid_target.y);
 
                     sbot_lemlib_debug_window_begin("match.approach_mid_goal_pose");
-                    sbot_chassis->moveToPose(mid_target.x, mid_target.y, goal_heading, goal_motion_timeout_ms, poseParams);
-                    sbot_wait_until_pose_close_or_timeout_timed(
+                    sbot_turn_point_turn(
                         "match.approach_mid_goal_pose",
+                        mid_target.x,
+                        mid_target.y,
+                        goal_heading,
+                        t.turn_timeout_ms,
+                        goal_motion_timeout_ms,
+                        turnParams,
+                        driveParams,
                         goal_wait_timeout_ms,
                         650,
-                        {mid_target.x, mid_target.y},
                         0.5,
-                        goal_heading,
                         6.0
                     );
                     sbot_lemlib_debug_window_end("match.approach_mid_goal_pose");
@@ -1488,20 +1613,23 @@ static void sbot_run_match_auto(
                         const double dist = std::sqrt(dx * dx + dy * dy);
                         if (dist > 3.0) {
                             printf("MID GOAL retry: dist still %.2f in\n", dist);
-                            lemlib::MoveToPoseParams retry = poseParams;
-                            retry.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                            retry.lead = 0.25;
+                            lemlib::MoveToPointParams retryDrive = driveParams;
+                            retryDrive.maxSpeed = 85;
                             sbot_print_jerry_target("mid_goal_pose_target.retry", mid_target.x, mid_target.y);
 
                             sbot_lemlib_debug_window_begin("match.approach_mid_goal_pose.retry");
-                            sbot_chassis->moveToPose(mid_target.x, mid_target.y, goal_heading, 5000, retry);
-                            sbot_wait_until_pose_close_or_timeout_timed(
+                            sbot_turn_point_turn(
                                 "match.approach_mid_goal_pose.retry",
+                                mid_target.x,
+                                mid_target.y,
+                                goal_heading,
+                                t.turn_timeout_ms,
+                                5000,
+                                turnParams,
+                                retryDrive,
                                 1800,
                                 450,
-                                {mid_target.x, mid_target.y},
                                 0.5,
-                                goal_heading,
                                 6.0
                             );
                             sbot_lemlib_debug_window_end("match.approach_mid_goal_pose.retry");
@@ -1518,7 +1646,7 @@ static void sbot_run_match_auto(
                     const double dy = mid_target.y - pose1.y;
                     const double dist = std::sqrt(dx * dx + dy * dy);
                     printf(
-                        "MID GOAL after moveToPose: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f) dist=%.2f\n",
+                        "MID GOAL after turn+moveToPoint+turn: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f) dist=%.2f\n",
                         pose1.x,
                         pose1.y,
                         pose1.theta,
@@ -1548,24 +1676,32 @@ static void sbot_run_match_auto(
             const SbotPoint retreat = sbot_apply_alliance_transform_only(t.post_score_retreat_point, alliance_);
             printf("RETREAT target: (%.2f, %.2f)\n", retreat.x, retreat.y);
             if (sbot_chassis) {
-                // Use moveToPose while reversing so we converge x/y while holding the current heading.
-                // This matches the intent of "back straight out" while being endpoint-accurate.
                 const double retreat_heading = sbot_get_best_heading_deg();
-                lemlib::MoveToPoseParams params;
-                params.forwards = false;
-                params.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                params.minSpeed = 0;
-                params.earlyExitRange = 0;
-                params.lead = 0.3;
-                sbot_chassis->moveToPose(retreat.x, retreat.y, retreat_heading, t.drive_timeout_ms, params);
-                sbot_wait_until_pose_close_or_timeout_timed(
+                lemlib::TurnToHeadingParams turnParams;
+                turnParams.maxSpeed = SBOT_MATCH_TURN_MAX_SPEED;
+                turnParams.minSpeed = 0;
+
+                lemlib::MoveToPointParams driveParams;
+                driveParams.forwards = false;
+                driveParams.maxSpeed = 95;
+                driveParams.minSpeed = 0;
+                driveParams.earlyExitRange = 0;
+
+                sbot_turn_point_turn(
                     "match.retreat",
+                    retreat.x,
+                    retreat.y,
+                    static_cast<float>(retreat_heading),
+                    t.turn_timeout_ms,
+                    t.drive_timeout_ms,
+                    turnParams,
+                    driveParams,
                     t.drive_timeout_ms,
                     300,
-                    {retreat.x, retreat.y},
                     1.25,
-                    retreat_heading,
                     12.0
+                    , false /*do_pre_turn*/
+                    , false /*do_post_turn*/
                 );
 
                 // If we are still noticeably off the retreat point, retry once slower.
@@ -1573,18 +1709,21 @@ static void sbot_run_match_auto(
                     const auto pose_now = sbot_chassis->getPose();
                     const SbotPoint now{pose_now.x, pose_now.y};
                     if (sbot_dist_in(now, retreat) > 2.0) {
-                        lemlib::MoveToPoseParams retry = params;
-                        retry.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                        retry.lead = 0.25;
                         const double retry_heading = sbot_get_best_heading_deg();
-                        sbot_chassis->moveToPose(retreat.x, retreat.y, retry_heading, t.drive_timeout_ms, retry);
-                        sbot_wait_until_pose_close_or_timeout_timed(
+                        lemlib::MoveToPointParams retryDrive = driveParams;
+                        retryDrive.maxSpeed = 75;
+                        sbot_turn_point_turn(
                             "match.retreat.retry",
+                            retreat.x,
+                            retreat.y,
+                            static_cast<float>(retry_heading),
+                            t.turn_timeout_ms,
+                            t.drive_timeout_ms,
+                            turnParams,
+                            retryDrive,
                             t.drive_timeout_ms,
                             300,
-                            {retreat.x, retreat.y},
                             1.25,
-                            retry_heading,
                             12.0
                         );
                     }
@@ -1619,7 +1758,8 @@ static void sbot_run_match_auto(
             );
         }
         if (sbot_chassis) sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_HOLD);
-        turn_to(t.tube_face_heading_deg, SBOT_MATCH_TURN_MAX_SPEED, 0);
+        // Faster settle: allow a small minSpeed so we don't crawl at the end.
+        turn_to(t.tube_face_heading_deg, SBOT_MATCH_TURN_MAX_SPEED, 10);
         if (sbot_chassis) sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_BRAKE);
         if (sbot_chassis) {
             const double target_heading = sbot_apply_alliance_transform_heading_only(t.tube_face_heading_deg, alliance_);
@@ -1642,7 +1782,7 @@ static void sbot_run_match_auto(
             pros::delay(120);
         }
         // Small settle after turning to face the tube/loader.
-        pros::delay(80);
+        pros::delay(20);
         sbot_print_pose("after retreat/turn");
         sbot_print_sensors("after retreat/turn");
 
@@ -1655,18 +1795,8 @@ static void sbot_run_match_auto(
 
             // Red Left (and Blue Right): tube/long-goal are on the same X line.
             if (sbot_chassis) {
-                // First, explicitly get onto the shared X-line (tube + long goal).
-                {
-                    const auto pose0 = sbot_chassis->getPose();
-                    const double line_x = sbot_apply_alliance_transform_only({t.loader_long_goal_line_x, 0.0}, alliance_).x;
-                    lemlib::MoveToPointParams xParams;
-                    xParams.forwards = true;
-                    xParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                    xParams.minSpeed = 0;
-                    xParams.earlyExitRange = 0;
-                    sbot_chassis->moveToPoint(line_x, pose0.y, 1600, xParams);
-                    sbot_wait_until_done_or_timed_out_timed("match.align_line_x", 1600);
-                }
+                // Time/robustness: skip the explicit X-line alignment step.
+                // It can add lateral scrub (odom drift) and costs time; we instead go straight to the tube contact-derived pose.
 
                 const double tube_heading = sbot_apply_alliance_transform_heading_only(t.tube_face_heading_deg, alliance_);
                 SbotPoint tube_pose_target = sbot_apply_alliance_transform_only(t.tube1, alliance_);
@@ -1699,7 +1829,7 @@ static void sbot_run_match_auto(
                     const double dx = tube_pose_target.x - pose0.x;
                     const double dy = tube_pose_target.y - pose0.y;
                     printf(
-                        "TUBE moveToPose: from(%.2f,%.2f,%.1f) to(%.2f,%.2f,%.1f) d=(%.2f,%.2f)\n",
+                        "TUBE turn+moveToPoint+turn: from(%.2f,%.2f,%.1f) to(%.2f,%.2f,%.1f) d=(%.2f,%.2f)\n",
                         pose0.x,
                         pose0.y,
                         pose0.theta,
@@ -1711,27 +1841,36 @@ static void sbot_run_match_auto(
                     );
                 }
                 {
-                    const uint32_t tube_wait_timeout_ms = 1700;
-                    const uint32_t tube_motion_timeout_ms = 9000;
-                    lemlib::MoveToPoseParams p;
-                    p.forwards = true;
-                    p.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                    p.minSpeed = 0;
-                    p.earlyExitRange = 0;
-                    p.lead = 0.3;
+                    const uint32_t tube_wait_timeout_ms = 900;
+                    const uint32_t tube_motion_timeout_ms = 2200;
+                    lemlib::TurnToHeadingParams turnParams;
+                    turnParams.maxSpeed = SBOT_MATCH_TURN_MAX_SPEED;
+                    turnParams.minSpeed = 0;
+
+                    lemlib::MoveToPointParams driveParams;
+                    driveParams.forwards = true;
+                    driveParams.maxSpeed = SBOT_MATCH_MAX_SPEED;
+                    driveParams.minSpeed = 0;
+                    driveParams.earlyExitRange = 0;
 
                     sbot_print_jerry_target("tube_pose_target", tube_pose_target.x, tube_pose_target.y);
 
                     sbot_lemlib_debug_window_begin("match.approach_tube_pose");
-                    sbot_chassis->moveToPose(tube_pose_target.x, tube_pose_target.y, tube_heading, tube_motion_timeout_ms, p);
-                    sbot_wait_until_pose_close_or_timeout_timed(
+                    sbot_turn_point_turn(
                         "match.approach_tube_pose",
+                        tube_pose_target.x,
+                        tube_pose_target.y,
+                        tube_heading,
+                        t.turn_timeout_ms,
+                        tube_motion_timeout_ms,
+                        turnParams,
+                        driveParams,
                         tube_wait_timeout_ms,
                         350,
-                        {tube_pose_target.x, tube_pose_target.y},
                         1.0,
-                        tube_heading,
                         8.0
+                        , false /*do_pre_turn*/
+                        , false /*do_post_turn*/
                     );
                     sbot_lemlib_debug_window_end("match.approach_tube_pose");
 
@@ -1742,20 +1881,23 @@ static void sbot_run_match_auto(
                         const double dist = std::sqrt(dx * dx + dy * dy);
                         if (dist > 3.0) {
                             printf("TUBE retry: dist still %.2f in\n", dist);
-                            lemlib::MoveToPoseParams retry = p;
-                            retry.maxSpeed = SBOT_MATCH_MAX_SPEED;
-                            retry.lead = 0.25;
+                            lemlib::MoveToPointParams retryDrive = driveParams;
+                            retryDrive.maxSpeed = 90;
                             sbot_print_jerry_target("tube_pose_target.retry", tube_pose_target.x, tube_pose_target.y);
 
                             sbot_lemlib_debug_window_begin("match.approach_tube_pose.retry");
-                            sbot_chassis->moveToPose(tube_pose_target.x, tube_pose_target.y, tube_heading, 5000, retry);
-                            sbot_wait_until_pose_close_or_timeout_timed(
+                            sbot_turn_point_turn(
                                 "match.approach_tube_pose.retry",
+                                tube_pose_target.x,
+                                tube_pose_target.y,
+                                tube_heading,
+                                t.turn_timeout_ms,
+                                5000,
+                                turnParams,
+                                retryDrive,
                                 1100,
                                 250,
-                                {tube_pose_target.x, tube_pose_target.y},
                                 1.0,
-                                tube_heading,
                                 8.0
                             );
                             sbot_lemlib_debug_window_end("match.approach_tube_pose.retry");
@@ -1768,7 +1910,7 @@ static void sbot_run_match_auto(
                     const double dx = tube_pose_target.x - pose1.x;
                     const double dy = tube_pose_target.y - pose1.y;
                     printf(
-                        "TUBE after moveToPose: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f)\n",
+                        "TUBE after turn+moveToPoint+turn: at(%.2f,%.2f,%.1f) err=(%.2f,%.2f)\n",
                         pose1.x,
                         pose1.y,
                         pose1.theta,
@@ -1776,6 +1918,11 @@ static void sbot_run_match_auto(
                         dy
                     );
                 }
+
+                // Physical tuning: seat into the match loader a bit more.
+                // If we're ~2" short, this small forward nudge (while facing the loader) helps ensure engagement.
+                printf("TUBE seat push: +2in\n");
+                sbot_drive_relative_stall_exit(2.0, 900, true /* forwards */, 250, 0.20, 55);
             }
 
             // Pull from the Loader while intaking + actuate batch loader.
@@ -1786,6 +1933,7 @@ static void sbot_run_match_auto(
             // Pull off the loader so we can back into the long goal cleanly.
             // No extra pulloff drive: rely on the next motion to clear cleanly.
             sbot_print_pose("after loader1 (relative)");
+            sbot_print_jerry_pose("after loader1 (relative)");
         } else {
             // Other starts: keep the existing absolute-point approach for now.
             drive_to(t.tube1, true);
@@ -1829,6 +1977,7 @@ static void sbot_run_match_auto(
         // Ensure we spend at least 1s actively scoring.
         sbot_score_top_for(std::max<uint32_t>(t.high_goal_score_ms, 1000));
         sbot_print_pose("after high goal");
+        sbot_print_jerry_pose("after high goal");
 
         // Stage 6: ensure final position is clear of park-zone barrier.
         printf("AWP STAGE 6: end safe\n");
@@ -1838,7 +1987,6 @@ static void sbot_run_match_auto(
 
         sbot_safe_stop_mechanisms();
         printf("SBOT AUTON: %s complete\n", solo_ ? "SOLO AWP" : "AWP HALF");
-        printf("SBOT AUTON TOTAL: %u ms\n", static_cast<unsigned>(pros::millis() - auton_start_ms));
     };
 
     sbot_run_awp_half_field(side, alliance, solo_awp);
@@ -1909,13 +2057,14 @@ static const char* sbot_mode_name(int idx) {
         "Test: Turn",            // 12
         "Test: Intake",          // 13
         "Test: Indexer",         // 14
-        "Test: Drive Short (moveToPose)", // 15
-        "Test: MoveToPose LowGoal (custom start)", // 16
+        "Test: Drive Short", // 15
+        "Test: LowGoal (custom start)", // 16
         "Test: Pose Monitor (x,y,th)", // 17
-        "Test: Follow Path (LemLib follow)" // 18
+        "Test: Follow Path (LemLib follow)", // 18
+        "Test: Pose Finder (x0 line, 90deg)" // 19
     };
 
-    if (idx < 0 || idx > 18) return "<invalid>";
+    if (idx < 0 || idx > 19) return "<invalid>";
     return mode_names[idx];
 }
 
@@ -1953,7 +2102,7 @@ void SbotAutoSelector::handleInput() {
     bool right_pressed = master.get_digital_new_press(SBOT_AUTO_NEXT_BTN);
     bool a_pressed = master.get_digital_new_press(SBOT_AUTO_CONFIRM_BTN);
 
-    const int max_index = 18; // 0..18
+    const int max_index = 19; // 0..19
 
     if (!mode_confirmed) {
         if (left_pressed) {
@@ -2011,6 +2160,14 @@ void SbotAutonomousSystem::updateSelector() {
 void SbotAutonomousSystem::run() {
     SbotAutoMode mode = selector.getMode();
 
+    const bool should_time = (mode != SbotAutoMode::DISABLED);
+    const uint32_t auton_total_start_ms = should_time ? pros::millis() : 0;
+    if (should_time) {
+        sbot_auton_elapsed_active = true;
+        sbot_auton_elapsed_start_ms = auton_total_start_ms;
+        sbot_print_auton_elapsed("auton_start");
+    }
+
     switch (mode) {
         case SbotAutoMode::RED_LEFT:   runRedLeft();   break;
         case SbotAutoMode::RED_RIGHT:  runRedRight();  break;
@@ -2023,10 +2180,11 @@ void SbotAutonomousSystem::run() {
         case SbotAutoMode::SKILLS:     runSkills();    break;
         case SbotAutoMode::TEST_SWEEP_TO_LOW_GOAL: runTestSweepToLowGoal(); break;
         case SbotAutoMode::TEST_DRIVE:   runTestDrive();   break;
-        case SbotAutoMode::TEST_DRIVE_MOVETOPOSE: runTestDriveMoveToPose(); break;
-        case SbotAutoMode::TEST_MOVETOPOSE_LOW_GOAL_CUSTOM_START: runTestMoveToPoseLowGoalCustomStart(); break;
+        case SbotAutoMode::TEST_DRIVE_SHORT: runTestDriveShort(); break;
+        case SbotAutoMode::TEST_LOW_GOAL_CUSTOM_START: runTestLowGoalCustomStart(); break;
         case SbotAutoMode::TEST_JERRY_POSE_MONITOR: runTestJerryPoseMonitor(); break;
         case SbotAutoMode::TEST_FOLLOW_JERRY_PATH: runTestFollowJerryPath(); break;
+        case SbotAutoMode::TEST_POSE_FINDER_X0_LINE_90: runTestPoseFinderX0Line90(); break;
         case SbotAutoMode::TEST_TURN:    runTestTurn();    break;
         case SbotAutoMode::TEST_INTAKE:  runTestIntake();  break;
         case SbotAutoMode::TEST_INDEXER: runTestIndexer(); break;
@@ -2034,6 +2192,12 @@ void SbotAutonomousSystem::run() {
         default:
             // Do nothing
             break;
+    }
+
+    if (should_time) {
+        const uint32_t dur_ms = pros::millis() - auton_total_start_ms;
+        printf("SBOT AUTON TOTAL: %u ms (%.2f s)\n", static_cast<unsigned>(dur_ms), dur_ms / 1000.0);
+        sbot_auton_elapsed_active = false;
     }
 }
 
@@ -2105,6 +2269,84 @@ void SbotAutonomousSystem::runTestJerryPoseMonitor() {
     pros::delay(250);
 }
 
+void SbotAutonomousSystem::runTestPoseFinderX0Line90() {
+    // Starting-reference helper:
+    // - Physically place the robot on the FIELD x=0 line
+    // - Set the robot heading to 90° (LemLib convention: 0° is +Y, 90° is +X)
+    // Then move the robot by hand to the desired match start and read off x/y/theta.
+    printf("SBOT AUTON TEST: Pose Finder (x=0 line, heading=90)\n");
+
+    if (!validateSbotLemLibInitialization() || !sbot_chassis) {
+        printf("SBOT Pose Finder: LemLib/chassis not initialized\n");
+        pros::Controller master(pros::E_CONTROLLER_MASTER);
+        if (master.is_connected()) {
+            master.print(0, 0, "POSE FIND: no chassis");
+            master.print(1, 0, "Check LemLib init");
+        }
+        pros::delay(1500);
+        return;
+    }
+
+    sbot_safe_stop_mechanisms();
+
+    // Easier to push around by hand.
+    sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_COAST);
+
+    // Declare the current physical placement as (0,0,90).
+    // NOTE: this assumes the robot is already placed on the x=0 line with 90° heading when you start this test.
+    sbot_zero_pose_and_sensors(0, 0, 90);
+    pros::delay(50);
+
+    pros::Controller master(pros::E_CONTROLLER_MASTER);
+    if (master.is_connected()) {
+        master.clear();
+        master.print(0, 0, "POSE FIND (B=exit)");
+        master.print(1, 0, "Start x0 th90, move");
+    }
+    pros::delay(700);
+
+    uint32_t last_controller_ms = 0;
+    uint32_t last_terminal_ms = 0;
+
+    while (!master.get_digital(pros::E_CONTROLLER_DIGITAL_B)) {
+        const uint32_t now = pros::millis();
+        const auto pose = sbot_chassis->getPose();
+
+        // "Jerry-style" mapping, but RELATIVE to this test's start.
+        // We intentionally want the display to read (0,0) at the moment we set pose to (0,0,90)
+        // on the x=0 line.
+        // Mapping (relative):
+        //   jx = ourY
+        //   jy = -ourX
+        const double jerry_x = pose.y;
+        const double jerry_y = -pose.x;
+
+        if (now - last_controller_ms >= 100) {
+            last_controller_ms = now;
+            if (master.is_connected()) {
+                master.print(0, 0, "jx%7.2f jy%7.2f", jerry_x, jerry_y);
+                master.print(1, 0, "th%6.1f", pose.theta);
+            }
+        }
+
+        if (now - last_terminal_ms >= 500) {
+            last_terminal_ms = now;
+            printf("POSE FIND: rel_jerry(%.2f,%.2f) th=%.1f\n", jerry_x, jerry_y, pose.theta);
+        }
+
+        pros::delay(20);
+    }
+
+    if (master.is_connected()) {
+        master.clear();
+        master.print(0, 0, "POSE FIND: exit");
+    }
+
+    // Restore typical behavior for other routines.
+    sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_BRAKE);
+    pros::delay(250);
+}
+
 void SbotAutonomousSystem::runTestFollowJerryPath() {
     printf("SBOT AUTON TEST: FOLLOW PATH (LemLib follow)\n");
     if (!validateSbotLemLibInitialization() || !sbot_chassis) return;
@@ -2117,34 +2359,137 @@ void SbotAutonomousSystem::runTestFollowJerryPath() {
     // For following a continuous path, COAST avoids hard stops.
     sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_COAST);
 
-    // Align with our usual start-relative frame.
-    sbot_zero_pose_and_sensors(0, 0, 0);
-    pros::delay(50);
-    sbot_chassis->setPose(0, 0, 0);
+    // For LemLib follow(), the robot pose frame must match the path file's coordinate frame.
+    // IMPORTANT: keep IMU heading/rotation consistent with the chassis pose heading.
+    // This test path is authored in the same absolute Jerry frame as Red Left start.
+    // Match the first waypoint in static/low.txt so follow() doesn't start with a lateral offset.
+    sbot_zero_pose_and_sensors(-50.23f, 15.31f, 90.0f);
 
     sbot_print_pose("before follow");
     sbot_print_sensors("before follow");
 
-    printf("SBOT FOLLOW: asset bytes=%u\n", static_cast<unsigned>(low_goal_txt.size));
-    if (low_goal_txt.size >= 3 && low_goal_txt.buf) {
-        printf(
-            "SBOT FOLLOW: first bytes=%02X %02X %02X\n",
-            static_cast<unsigned>(low_goal_txt.buf[0]),
-            static_cast<unsigned>(low_goal_txt.buf[1]),
-            static_cast<unsigned>(low_goal_txt.buf[2])
+    printf("SBOT FOLLOW: asset bytes=%u\n", static_cast<unsigned>(low_txt.size));
+
+    // Keep LemLib logs quiet for normal runs.
+    lemlib::infoSink()->setLowestLevel(lemlib::Level::WARN);
+
+    // Follow the compiled path asset.
+    // Note: lookahead is in inches.
+    // Smaller lookahead => tighter tracking (often slower/more oscillation if too small).
+    constexpr float kLookaheadIn = 10.0f;
+    // Keep the follow test bounded (~4-5 seconds).
+    constexpr int kTimeoutMs = 5000;
+
+    // Run async so we can report whether motion actually starts.
+    sbot_chassis->follow(low_txt, kLookaheadIn, kTimeoutMs, true /*forwards*/, true /*async*/);
+
+    const uint32_t start_ms = pros::millis();
+    bool ever_in_motion = false;
+    bool printed_end = false;
+
+    // Keep waiting up to the timeout window, but avoid spamming the terminal.
+    while (pros::millis() - start_ms < static_cast<uint32_t>(kTimeoutMs + 250)) {
+        const bool in_motion = sbot_chassis->isInMotion();
+        if (in_motion) ever_in_motion = true;
+
+        if (!in_motion && ever_in_motion && !printed_end) {
+            printed_end = true;
+            printf("SBOT FOLLOW: motion complete at t=%u ms\n",
+                   static_cast<unsigned>(pros::millis() - start_ms));
+        }
+
+        pros::delay(20);
+    }
+
+    // Wait for completion (if LemLib actually queued/runs a motion, this blocks).
+    sbot_chassis->waitUntilDone();
+
+    // Debug isolation: exit immediately after finishing the path.
+    // This ensures any odd turns/motions aren't coming from the post-follow script.
+    printf("SBOT FOLLOW: exiting after path (skip post-follow)\n");
+    sbot_safe_stop_mechanisms();
+    sbot_print_pose("after follow");
+    sbot_print_sensors("after follow");
+    return;
+
+    // --- Post-run sequence (final) ---
+    // Keep post-follow actions at 50% speed for repeatability.
+    constexpr int kPostTurnMaxSpeed = SBOT_MATCH_TURN_MAX_SPEED / 2;
+    constexpr int kPostDriveMaxSpeed = SBOT_MATCH_MAX_SPEED / 2;
+
+    lemlib::TurnToHeadingParams post_turn_params;
+    post_turn_params.maxSpeed = kPostTurnMaxSpeed;
+    post_turn_params.minSpeed = 10;
+
+    lemlib::MoveToPointParams post_drive_params;
+    post_drive_params.forwards = true;
+    post_drive_params.maxSpeed = kPostDriveMaxSpeed;
+
+    // 1) At the end of the run, wait.
+    pros::delay(250);
+
+    // 2) Turn to 180 degrees.
+    printf("SBOT POSTFOLLOW: turn to 180\n");
+    sbot_chassis->turnToHeading(sbot_norm_heading(180.0), 2500, post_turn_params);
+    sbot_wait_until_done_timed("postfollow.turn_to_180");
+
+    // 3) Drop loader down and wait 1 second.
+    if (sbot_batch_loader) sbot_batch_loader->extend();
+    pros::delay(1000);
+
+    // 4) Move to -24,24,135.
+    {
+        const float target_heading = static_cast<float>(sbot_norm_heading(135.0));
+        printf("SBOT POSTFOLLOW: move to (-24, 24) endHeading=%.1f\n", target_heading);
+        sbot_turn_point_turn(
+            "postfollow_to_-24_24",
+            -24.0f,
+            24.0f,
+            target_heading,
+            2500,
+            4000,
+            post_turn_params,
+            post_drive_params
         );
     }
 
-    // Follow the compiled path asset.
-    // Note: lookahead is in inches; adjust on-field if needed.
-    constexpr float kLookaheadIn = 10.0f;
-    constexpr int kTimeoutMs = 12000;
-    // Run synchronously so we don't accidentally continue before the path follower starts.
-    sbot_chassis->follow(low_goal_txt, kLookaheadIn, kTimeoutMs, true /*forwards*/, false /*async*/);
+    // 5) Turn in place to 45 degrees.
+    printf("SBOT POSTFOLLOW: turn to 45\n");
+    sbot_chassis->turnToHeading(sbot_norm_heading(45.0), 2500, post_turn_params);
+    sbot_wait_until_done_timed("postfollow.turn_to_45");
 
-    // Reached the goal: stop collecting and score low.
-    sbot_safe_stop_mechanisms();
+    // Lift matchloader after moving to 45 degrees.
+    if (sbot_batch_loader) sbot_batch_loader->retract();
+
+    // 6) Drive to pose -9,9,45.
+    {
+        const float target_heading = static_cast<float>(sbot_norm_heading(45.0));
+        printf("SBOT POSTFOLLOW: drive to (-9, 9) endHeading=%.1f\n", target_heading);
+        sbot_turn_point_turn(
+            "postfollow_to_-9_9",
+            -9.0f,
+            9.0f,
+            target_heading,
+            2500,
+            4000,
+            post_turn_params,
+            post_drive_params,
+            0,
+            0,
+            0.0,
+            0.0,
+            false,
+            true
+        );
+    }
+
+    // 7) Low score.
     sbot_score_low_for(1500);
+
+    // LemLib logs remain at WARN.
+
+    // Stop mechanisms after the post-run actions.
+    sbot_safe_stop_mechanisms();
 
     sbot_print_pose("after follow");
     sbot_print_sensors("after follow");
@@ -2213,14 +2558,15 @@ void SbotAutonomousSystem::runTestDrive() {
     constexpr float kLegIn = 48.0f;
     constexpr int kTimeoutMs = 9500;
 
-    // LemLib convention: +Y forward at 0°, +X right.
-    // We use boomerang (moveToPose) to blend the corner turn into the approach so it doesn't stop.
-    lemlib::MoveToPoseParams params;
+    lemlib::TurnToHeadingParams turnParams;
+    turnParams.maxSpeed = 70;
+    turnParams.minSpeed = 0;
+
+    lemlib::MoveToPointParams params;
     params.forwards = true;
     params.maxSpeed = 60;      // reduced speed
-    params.minSpeed = 0;       // prioritize reaching the actual corner (less corner-cutting)
+    params.minSpeed = 0;       // prioritize reaching the actual corner
     params.earlyExitRange = 0; // no early exit
-    params.lead = 0.35;        // straighter approach
 
     struct Target {
         float x;
@@ -2242,20 +2588,22 @@ void SbotAutonomousSystem::runTestDrive() {
     for (int i = 0; i < 4; i++) {
         const auto before = sbot_chassis->getPose();
 
-        sbot_chassis->moveToPose(targets[i].x, targets[i].y, targets[i].theta, kTimeoutMs, params);
-        {
-            char label[64];
-            std::snprintf(label, sizeof(label), "test.drive.rect.%s", targets[i].label);
-            sbot_wait_until_pose_close_or_timeout_timed(
-                label,
-                static_cast<uint32_t>(kTimeoutMs + 750),
-                250,
-                {targets[i].x, targets[i].y},
-                1.0,
-                targets[i].theta,
-                5.0
-            );
-        }
+        char label[64];
+        std::snprintf(label, sizeof(label), "test.drive.rect.%s", targets[i].label);
+        sbot_turn_point_turn(
+            label,
+            targets[i].x,
+            targets[i].y,
+            targets[i].theta,
+            2500,
+            static_cast<uint32_t>(kTimeoutMs),
+            turnParams,
+            params,
+            static_cast<uint32_t>(kTimeoutMs + 750),
+            250,
+            1.0,
+            5.0
+        );
 
         const auto after = sbot_chassis->getPose();
         printf(
@@ -2281,7 +2629,7 @@ void SbotAutonomousSystem::runTestDrive() {
     // Start with a right turn, then drive backwards 2 tiles, and repeat.
     printf("SBOT AUTON TEST: RECTANGLE reverse (backwards)\n");
 
-    lemlib::MoveToPoseParams backParams = params;
+    lemlib::MoveToPointParams backParams = params;
     backParams.forwards = false;
     backParams.maxSpeed = 55; // a little slower for backwards driving
 
@@ -2297,20 +2645,22 @@ void SbotAutonomousSystem::runTestDrive() {
     for (int i = 0; i < 4; i++) {
         const auto before = sbot_chassis->getPose();
 
-        sbot_chassis->moveToPose(backTargets[i].x, backTargets[i].y, backTargets[i].theta, kTimeoutMs, backParams);
-        {
-            char label[64];
-            std::snprintf(label, sizeof(label), "test.drive.rect.back.%s", backTargets[i].label);
-            sbot_wait_until_pose_close_or_timeout_timed(
-                label,
-                static_cast<uint32_t>(kTimeoutMs + 750),
-                250,
-                {backTargets[i].x, backTargets[i].y},
-                1.0,
-                backTargets[i].theta,
-                7.0
-            );
-        }
+        char label[64];
+        std::snprintf(label, sizeof(label), "test.drive.rect.back.%s", backTargets[i].label);
+        sbot_turn_point_turn(
+            label,
+            backTargets[i].x,
+            backTargets[i].y,
+            backTargets[i].theta,
+            2500,
+            static_cast<uint32_t>(kTimeoutMs),
+            turnParams,
+            backParams,
+            static_cast<uint32_t>(kTimeoutMs + 750),
+            250,
+            1.0,
+            7.0
+        );
 
         const auto after = sbot_chassis->getPose();
         printf(
@@ -2333,9 +2683,9 @@ void SbotAutonomousSystem::runTestDrive() {
     if (sbot_chassis) sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_BRAKE);
 }
 
-void SbotAutonomousSystem::runTestDriveMoveToPose() {
-    // Short moveToPose test: fixed start/end pose.
-    printf("SBOT AUTON TEST: SHORT DRIVE (moveToPose)\n");
+void SbotAutonomousSystem::runTestDriveShort() {
+    // Short drive test: fixed start/end pose.
+    printf("SBOT AUTON TEST: SHORT DRIVE\n");
     if (!validateSbotLemLibInitialization()) return;
 
     sbot_safe_stop_mechanisms();
@@ -2358,24 +2708,29 @@ void SbotAutonomousSystem::runTestDriveMoveToPose() {
     constexpr int kTimeoutMs = 4500;
     printf("SBOT SHORT DRIVE: start(0,0,0) -> target(%.2f,%.2f,%.1f)\n", kTargetX, kTargetY, kTargetTheta);
 
-    // LemLib convention: +Y forward at 0°, +X right.
-    // We use boomerang (moveToPose) to blend the corner turn into the approach so it doesn't stop.
-    lemlib::MoveToPoseParams params;
+    lemlib::TurnToHeadingParams turnParams;
+    turnParams.maxSpeed = 70;
+    turnParams.minSpeed = 0;
+
+    lemlib::MoveToPointParams params;
     params.forwards = true;
     params.maxSpeed = 60;      // reduced speed
-    params.minSpeed = 0;       // prioritize reaching the actual corner (less corner-cutting)
+    params.minSpeed = 0;       // prioritize reaching the actual corner
     params.earlyExitRange = 0; // no early exit
-    params.lead = 0.35;        // straighter approach
 
     const auto before = sbot_chassis->getPose();
-    sbot_chassis->moveToPose(kTargetX, kTargetY, kTargetTheta, kTimeoutMs, params);
-    sbot_wait_until_pose_close_or_timeout_timed(
+    sbot_turn_point_turn(
         "test.drive.short.target",
+        kTargetX,
+        kTargetY,
+        kTargetTheta,
+        2500,
+        static_cast<uint32_t>(kTimeoutMs),
+        turnParams,
+        params,
         static_cast<uint32_t>(kTimeoutMs + 500),
         200,
-        {kTargetX, kTargetY},
         0.75,
-        kTargetTheta,
         7.0
     );
 
@@ -2398,8 +2753,8 @@ void SbotAutonomousSystem::runTestDriveMoveToPose() {
     if (sbot_chassis) sbot_chassis->setBrakeMode(pros::E_MOTOR_BRAKE_BRAKE);
 }
 
-void SbotAutonomousSystem::runTestMoveToPoseLowGoalCustomStart() {
-    printf("SBOT AUTON TEST: MoveToPose -> Low Goal pose (custom start)\n");
+void SbotAutonomousSystem::runTestLowGoalCustomStart() {
+    printf("SBOT AUTON TEST: Low Goal (custom start)\n");
     if (!validateSbotLemLibInitialization()) return;
 
     sbot_safe_stop_mechanisms();
@@ -2437,32 +2792,39 @@ void SbotAutonomousSystem::runTestMoveToPoseLowGoalCustomStart() {
     );
     sbot_print_jerry_target("test_low_goal_pose_target", target.x, target.y);
 
-    lemlib::MoveToPoseParams params;
+    lemlib::TurnToHeadingParams turnParams;
+    turnParams.maxSpeed = 70;
+    turnParams.minSpeed = 0;
+
+    lemlib::MoveToPointParams params;
     params.forwards = true;
     params.maxSpeed = 95;
     params.minSpeed = 0;
     params.earlyExitRange = 0;
-    params.lead = 0.3;
 
     // Make LemLib's internal timeout long so our wait loop determines whether it converged.
     const uint32_t motion_timeout_ms = 15000;
     const uint32_t wait_timeout_ms = 6000;
 
-    sbot_lemlib_debug_window_begin("test.moveToPose.low_goal");
-    sbot_chassis->moveToPose(target.x, target.y, kTargetHeadingDeg, motion_timeout_ms, params);
-    sbot_wait_until_pose_close_or_timeout_timed(
-        "test.moveToPose.low_goal",
+    sbot_lemlib_debug_window_begin("test.low_goal_custom_start");
+    sbot_turn_point_turn(
+        "test.low_goal_custom_start",
+        target.x,
+        target.y,
+        static_cast<float>(kTargetHeadingDeg),
+        2500,
+        motion_timeout_ms,
+        turnParams,
+        params,
         wait_timeout_ms,
         500,
-        {target.x, target.y},
         0.5,
-        kTargetHeadingDeg,
         6.0
     );
-    sbot_lemlib_debug_window_end("test.moveToPose.low_goal");
+    sbot_lemlib_debug_window_end("test.low_goal_custom_start");
 
-    sbot_print_pose("after test moveToPose");
-    sbot_print_sensors("after test moveToPose");
+    sbot_print_pose("after test approach");
+    sbot_print_sensors("after test approach");
 
     sbot_safe_stop_mechanisms();
 }
