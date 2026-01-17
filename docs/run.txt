@@ -1,43 +1,44 @@
-=== SBOT INITIALIZE START ===
 SBOT PNEU: batch loader RETRACT (ADI C -> 0)
 Initializing LemLib for sbot...
-SBOT BUILD TAG: Jan 15 2026 19:42:17
+SBOT BUILD TAG: Jan 16 2026 14:17:29
 Calibrating sbot chassis (IMU/odometry)...
 Sbot LemLib initialization complete.
 SBOT: subsystems created; defaults applied
 SBOT: development mode (no competition control). Auto select open for 10s.
 SBOT AUTO: select 0 (DISABLED) [L/R to change, A to confirm]
 SBOT: auto select... 10s left
-SBOT AUTO: select 19 (Test: Pose Finder (x0 line, 90deg)) [L/R to change, A to confirm]
+SBOT AUTO: select 1 (Red Left) [L/R to change, A to confirm]
 SBOT: auto select... 9s left
-SBOT AUTO: select 18 (Test: Follow Path (LemLib follow)) [L/R to change, A to confirm]
-SBOT AUTO: READY 18 (Test: Follow Path (LemLib follow))
+SBOT AUTO: READY 1 (Red Left)
 SBOT: auto mode confirmed
-SBOT: DEV MODE running selected autonomous mode: 18
+SBOT: DEV MODE running selected autonomous mode: 1
 SBOT ELAPSED [auton_start]: 0 ms (0.00 s)
-SBOT AUTON TEST: FOLLOW PATH (LemLib follow)
+SBOT AUTON: AWP HALF (RED LEFT)
+SBOT BUILD TAG: Jan 16 2026 21:26:41
 SBOT PNEU: batch loader RETRACT (ADI C -> 0)
-SBOT POSE [before follow]: x=-50.00 y=11.00 th=90.00
--39.000,61.000,120
-SBOT SENSORS [before follow]: imu.heading=0.01 imu.rotation=0.01 vertRot.pos=0.00 vert.in=0.00
-SBOT FOLLOW: asset bytes=2624
-SBOT FOLLOW: motion complete at t=1180 ms
-SBOT POSTFOLLOW: turn left 90 (308.3 -> 218.3)
-SBOT WAIT [turn_to]: 30 ms
+SBOT POSE [awp start]: x=0.00 y=0.00 th=0.00
+-50.000,15.000,120
+AWP STAGE 1: cluster collect
 SBOT PNEU: batch loader EXTEND (ADI C -> 1)
-SBOT POSTFOLLOW: move backwards to (-24, 24) endHeading=135.0
-SBOT WAIT [postfollow_back.pre_turn]: 450 ms
-SBOT WAIT [postfollow_back.drive]: 1200 ms
-SBOT WAIT [postfollow_back.post_turn]: 480 ms
-SBOT POSTFOLLOW: turn right 90 (48.6 -> 138.6)
-SBOT WAIT [turn_to]: 10 ms
+CLUSTER: loader deployed during approach
+CLUSTER: intake ON during approach
+SBOT WAIT [match.cluster.reach]: 990 ms
+SBOT POSE [after cluster]: x=-8.99 y=26.02 th=-19.49
+-23.980,23.986,120
+AWP STAGE 2: CENTER LOWER (front score)
+SBOT WAIT [match.turn_to]: 380 ms
 SBOT PNEU: batch loader RETRACT (ADI C -> 0)
-SBOT POSE [after follow]: x=-22.51 y=24.17 th=140.40
--25.833,33.514,120
-SBOT SENSORS [after follow]: imu.heading=51.88 imu.rotation=51.88 vertRot.pos=147155.00 vert.in=27.29
-SBOT PNEU: batch loader RETRACT (ADI C -> 0)
-SBOT AUTON TOTAL: 8110 ms (8.11 s)
-SBOT: DEV MODE autonomous complete; entering opcontrol
-=== SBOT INITIALIZE COMPLETE ===
-=== SBOT OPCONTROL() ENTER ===
-=== SBOT DRIVER CONTROL START ===
+CENTER LOWER contact->pose: contact(6.00,41.00) heading=45.0 front=7.50 => pose(0.70,35.70)
+LOW GOAL drive_to: from(-8.89,26.09,43.8) to(0.70,35.70,45.0) d=(9.59,9.60)
+SBOT TARGET JERRY [low_goal_pose_target]: our(0.70,35.70) => jerry(-14.303,14.303)
+SBOT WAIT [match.approach_low_goal_pose.pre_turn]: 260 ms
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=200ms dist=10.98 hErr=1.94 pose(-7.11,27.98,43.0) dPose=2.59 vert.in=30.82 dVert=3.20 imu.h=43.1 imu.r=43.1
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=400ms dist=8.20 hErr=0.95 pose(-5.20,29.99,44.1) dPose=2.78 vert.in=32.89 dVert=2.07 imu.h=44.1 imu.r=44.1
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=600ms dist=8.85 hErr=20.00 pose(-5.60,29.48,25.2) dPose=0.65 vert.in=32.53 dVert=-0.36 imu.h=25.0 imu.r=25.0
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=800ms dist=8.67 hErr=28.29 pose(-5.53,29.67,16.7) dPose=0.20 vert.in=32.64 dVert=0.11 imu.h=16.7 imu.r=16.7
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=1000ms dist=8.63 hErr=28.36 pose(-5.52,29.71,16.8) dPose=0.04 vert.in=32.60 dVert=-0.04 imu.h=16.6 imu.r=16.6
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=1200ms dist=8.65 hErr=28.19 pose(-5.53,29.69,16.8) dPose=0.02 vert.in=32.59 dVert=-0.01 imu.h=16.8 imu.r=16.8
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=1400ms dist=8.65 hErr=28.14 pose(-5.53,29.69,16.9) dPose=0.00 vert.in=32.59 dVert=0.00 imu.h=16.9 imu.r=16.9
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=1600ms dist=8.65 hErr=28.10 pose(-5.53,29.69,16.9) dPose=0.00 vert.in=32.59 dVert=0.00 imu.h=16.9 imu.r=16.9
+SBOT WAIT TRACE [match.approach_low_goal_pose.drive] t=1800ms dist=8.65 hErr=28.07 pose(-5.53,29.69,16.9) dPose=0.00 vert.in=32.59 dVert=0.00 imu.h=16.9 imu.r=16.9
+SBOT WAIT [match.approach_low_goal_pose.drive]: 1900 ms (timed out) endDist=8.65 endHErr=28.05 inMotion=0
