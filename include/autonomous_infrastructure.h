@@ -73,6 +73,7 @@ extern uint32_t sbot_auton_elapsed_start_ms;
 // Convert Jerry absolute coordinates to robot-relative coordinates
 // Uses the active Jerry start position set by the autonomous routine
 SbotPoint sbot_from_jerry(double jerry_x, double jerry_y);
+SbotPoint sbot_from_jerry_rotated(double jerry_x, double jerry_y);
 
 // Coordinate transformations for mirroring
 SbotPoint sbot_mirror_point_x(const SbotPoint& p);
@@ -111,6 +112,7 @@ double sbot_heading_error_deg(double target_deg, double current_deg);
 void sbot_print_pose(const char* label);
 void sbot_print_sensors(const char* label);
 void sbot_print_jerry_pose(const char* label);
+void sbot_print_jerry_pose_rotated(const char* label);
 void sbot_print_jerry_target(const char* label, double target_x, double target_y);
 
 // Dump current position as Jerry coordinate (for logging/plotting)
@@ -178,10 +180,10 @@ void sbot_wait_until_pose_close_or_timeout_timed(
 // ============================================================================
 
 // Move to a point (basic, with optional Y-mirror)
-bool sbot_drive_to(const SbotPoint& p, uint32_t timeout_ms, bool mirrored_y = false, bool forwards = true);
+bool sbot_drive_to(const SbotPoint& p, uint32_t timeout_ms, bool mirrored_y = false, bool forwards = true, float speed = 60.0);
 
 // Turn to a heading (basic, with optional Y-mirror)
-bool sbot_turn_to(double heading_deg, uint32_t timeout_ms, bool mirrored_y = false);
+bool sbot_turn_to(double heading_deg, uint32_t timeout_ms, bool mirrored_y = false, float speed = 80.0);
 
 // Auto-transformed movement (handles side and alliance mirroring)
 bool sbot_auto_drive_to(const SbotPoint& p, uint32_t timeout_ms, SbotAutoSide side, SbotAutoAlliance alliance, bool forwards = true);
@@ -240,6 +242,9 @@ void sbot_score_low_for(uint32_t duration_ms);
 void sbot_lemlib_debug_window_begin(const char* label);
 void sbot_lemlib_debug_window_end(const char* label);
 
+
+void sbot_run_red_left_auto();
+void sbot_run_red_right_auto();
 // ============================================================================
 // VALIDATION
 // ============================================================================

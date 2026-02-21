@@ -93,35 +93,24 @@ static constexpr bool SBOT_PRINT_WAIT_TIMES = true;
 // ----------------------------------------------------------------------------
 namespace RedLeft {
     // Ring clusters
-    static constexpr double CLUSTER1_JERRY_X = -17.0;
-    static constexpr double CLUSTER1_JERRY_Y = 26.0;
-    
-    static constexpr double CLUSTER2_JERRY_X = 17.0;
-    static constexpr double CLUSTER2_JERRY_Y = 26.0;
-    
-    // Center Goal - Lower (front bumper contact point)
-    static constexpr double CENTER_LOW_GOAL_JERRY_X = -9.0;
-    static constexpr double CENTER_LOW_GOAL_JERRY_Y = 9.0;
+    static constexpr double CLUSTER1_JERRY_X = -21.0;
+    static constexpr double CLUSTER1_JERRY_Y = 21.0;
     
     // Center Goal - Middle (back bumper contact point)
-    static constexpr double CENTER_MID_GOAL_JERRY_X = -2.7;
-    static constexpr double CENTER_MID_GOAL_JERRY_Y = 4.2;
-    
-    // Solo Middle Goal (back bumper contact point, opposite side)
-    static constexpr double SOLO_MID_GOAL_JERRY_X = 7.0;
-    static constexpr double SOLO_MID_GOAL_JERRY_Y = 7.0;
+    static constexpr double CENTER_MID_GOAL_JERRY_X = -8.0;
+    static constexpr double CENTER_MID_GOAL_JERRY_Y = 8.0;
     
     // Post-score retreat point
-    static constexpr double RETREAT_POINT_JERRY_X = -48.0;
-    static constexpr double RETREAT_POINT_JERRY_Y = 51.0;
+    static constexpr double RETREAT_POINT_JERRY_X = -47.0;
+    static constexpr double RETREAT_POINT_JERRY_Y = 47.0;
     
     // Match loader contact point (front bumper)
-    static constexpr double LOADER_CONTACT_JERRY_X = -73.0;
-    static constexpr double LOADER_CONTACT_JERRY_Y = 51.0;
+    static constexpr double LOADER_CONTACT_JERRY_X = -57.5;
+    static constexpr double LOADER_CONTACT_JERRY_Y = 47.0;
     
     // Long goal end position
-    static constexpr double LONG_GOAL_END_JERRY_X = -21.0;
-    static constexpr double LONG_GOAL_END_JERRY_Y = 51.0;
+    static constexpr double LONG_GOAL_END_JERRY_X = -25.0;
+    static constexpr double LONG_GOAL_END_JERRY_Y = 47.0;
 }
 
 // ----------------------------------------------------------------------------
@@ -157,7 +146,74 @@ namespace RedRight {
     
     // Long goal end position
     static constexpr double LONG_GOAL_END_JERRY_X = -21.0;
-    static constexpr double LONG_GOAL_END_JERRY_Y = -51.0;  // Y flipped from RedLeft (+51 -> -51)
+    static constexpr double LONG_GOAL_END_JERRY_Y = -48.0;  // Y flipped from RedLeft (+51 -> -51)
+}
+
+// ----------------------------------------------------------------------------
+// Skills WAYPOINTS
+// ----------------------------------------------------------------------------
+namespace Skills {
+    static constexpr double SKILLS_JERRY_START_X_BASE = -46.3;
+    static constexpr double SKILLS_JERRY_START_Y_BASE = 17.2;
+
+    //Going to match loader
+    static constexpr double SKILLS_TO_MATCH_LOADER_JERRY_X = -46.3;
+    static constexpr double SKILLS_TO_MATCH_LOADER_JERRY_Y = 47.0;
+
+    // Match loader contact point
+    static constexpr double SKILLS_MATCH_LOADER_CONTACT_RED_JERRY_X = -57.5;
+    static constexpr double SKILLS_MATCH_LOADER_CONTACT_RED_JERRY_Y = 47.0;
+
+    static constexpr double SKILLS_MATCH_LOADER_RETREAT_JERRY_X = -51.0;
+    static constexpr double SKILLS_MATCH_LOADER_RETREAT_JERRY_Y = 47.0;
+
+    static constexpr double SKILLS_GOING_AROUND_LONG_GOAL_JERRY_X = -32.0;
+    static constexpr double SKILLS_GOING_AROUND_LONG_GOAL_JERRY_Y = 58.25;
+
+    static constexpr double SKILLS_GOING_ACROSS_LONG_GOAL_JERRY_X = 30.0;
+    static constexpr double SKILLS_GOING_ACROSS_LONG_GOAL_JERRY_Y = 58.25;
+
+    static constexpr double SKILLS_ALIGNING_TO_LONG_GOAL_JERRY_X = 42.0;
+    static constexpr double SKILLS_ALIGNING_TO_LONG_GOAL_JERRY_Y = 46.5;
+
+    static constexpr double SKILLS_LONG_GOAL_CONTACT_JERRY_X = 25.0;
+    static constexpr double SKILLS_LONG_GOAL_CONTACT_JERRY_Y = 46.5;
+
+    static constexpr double SKILLS_MATCH_LOADER_CONTACT_BLUE_JERRY_X = 60.0;
+    static constexpr double SKILLS_MATCH_LOADER_CONTACT_BLUE_JERRY_Y = 46.5;
+
+    static constexpr double SKILLS_LONG_GOAL_RETREAT_JERRY_X = 33.0;
+    static constexpr double SKILLS_LONG_GOAL_RETREAT_JERRY_Y = 46.5;
+
+    static constexpr double SKILLS_RIGHT_LONG_GOAL_RETREAT_X = 33.0;
+    static constexpr double SKILLS_RIGHT_LONG_GOAL_RETREAT_Y = 39.0;
+
+    static constexpr double SKILLS_RIGHT_MATCHLOAD_ALIGN_X = 33.0; 
+    static constexpr double SKILLS_RIGHT_MATCHLOAD_ALIGN_Y = -48.0;
+
+    static constexpr double SKILLS_PARK_RED_JERRY_X = -62.0;
+    static constexpr double SKILLS_PARK_RED_JERRY_Y = 27.0;
+
+
+
+
+
+
+
+
+
+    //HEADINGS
+    static constexpr double SKILLS_MATCHLOADER_RED_HEADING = 270.0;
+    static constexpr double SKILLS_GOING_AROUND_LONG_GOAL_HEADING = 52.1;
+    static constexpr double SKILLS_GOING_ACROSS_LONG_GOAL_HEADING = 90.0;
+    static constexpr double SKILLS_ALIGNING_TO_LONG_GOAL_HEADING = 134.0;
+    static constexpr double SKILLS_LONG_GOAL_CONTACT_HEADING = 90.0;
+    static constexpr double SKILLS_MATCHLOADER_BLUE_HEADING = 90.0;
+    static constexpr double SKILLS_PARK_ONE_HEADING = 161.33;
+    static constexpr double SKILLS_PARK_FINAL_HEADING = 180.0;
+    static constexpr double SKILLS_BLUE_PARK_HEADING = 180.0;
+
+
 }
 
 // ============================================================================

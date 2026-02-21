@@ -16,6 +16,8 @@
 #include "autonomous_skills.h"
 #include "robodash_selector.h"
 #include "lemlib_config_sbot.h"
+#include "autonomous_test_forward.h"
+#include "autonomous_infrastructure.h"
 
 // Upload script patches this to true for hardcoded backup slots (2-5).
 // When true, autonomous runs immediately without showing the RoboDash selector.
@@ -139,17 +141,7 @@ void competition_initialize() {
 }
 
 void autonomous() {
-    printf("MARKER01\n");
-    printf("=== SBOT AUTONOMOUS() ENTER ===\n");
-    printf("=== SBOT AUTONOMOUS START ===\n");
-    printf("SBOT: Running RoboDash selector\n");
-    printf("SBOT: selector.run_auton()\n");
-    fflush(stdout);
-
-    selector.run_auton();
-
-    printf("=== SBOT AUTONOMOUS COMPLETE ===\n");
-    fflush(stdout);
+    sbot_run_red_right_auto();
 }
 
 void opcontrol() {
@@ -255,6 +247,8 @@ void opcontrol() {
     bool low_score_active = false;
     bool reverse_intake_active = false;  // Manual reverse intake mode
 
+    bool is_slow_mode = false;
+
     while (true) {
         // Periodic heartbeat and selector update
         uint32_t now = pros::millis();
@@ -266,15 +260,18 @@ void opcontrol() {
         }
 
         // Drivetrain tank drive control (left stick = left side, right stick = right side)
-        sbot_drive->tankControl(*sbot_master);
+        sbot_drive->tankControl(*sbot_master, false);
 
         // Alliance color and sorting toggles
-        if (sbot_master->get_digital_new_press(SBOT_SET_RED_ALLIANCE_BTN)) {
-            sbot_color_system->setAllianceColor(AllianceColor::RED);
-        }
-        if (sbot_master->get_digital_new_press(SBOT_SET_BLUE_ALLIANCE_BTN)) {
-            sbot_color_system->setAllianceColor(AllianceColor::BLUE);
-        }
+        //if (sbot_master->get_digital_new_press(SBOT_SET_RED_ALLIANCE_BTN)) {
+        //    sbot_color_system->setAllianceColor(AllianceColor::RED);
+        //}
+        //if (sbot_master->get_digital_new_press(SBOT_SET_BLUE_ALLIANCE_BTN)) {
+        //   sbot_color_system->setAllianceColor(AllianceColor::BLUE);
+        //}
+
+        
+
         if (sbot_master->get_digital_new_press(SBOT_COLOR_SORT_TOGGLE_BTN)) {
             sbot_color_system->setSortingEnabled(!sbot_color_system->isSortingEnabled());
         }
@@ -300,17 +297,36 @@ void opcontrol() {
             fflush(stdout);
         }
 
-        if (sbot_master->get_digital_new_press(SBOT_BATCH_LOADER_TOGGLE_BTN)) {
-            batch_loader_latched_extended = !batch_loader_latched_extended;
-            printf("SBOT: B pressed -> batch loader latched = %d\n", batch_loader_latched_extended ? 1 : 0);
-            fflush(stdout);
-            if (batch_loader_latched_extended) {
-                sbot_batch_loader->extend();
-            } else {
-                sbot_batch_loader->retract();
-            }
-        }
+        // 1. Pass the Slow Mode state (based on loader position) to the drivetrain
+        // (This tells the drivetrain whether to cut speed or not)
+        bool is_match_load_mode = batch_loader_latched_extended;
+        sbot_drive->tankControl(*sbot_master, is_match_load_mode);
 
+        // 2. Match Loader Toggle Logic
+        if (sbot_master->get_digital_new_press(SBOT_BATCH_LOADER_TOGGLE_BTN)) {
+            // Toggle the state
+            batch_loader_latched_extended = !batch_loader_latched_extended;
+
+            if (batch_loader_latched_extended) {
+                // --- ENTERING MATCH LOAD MODE ---
+                sbot_batch_loader->extend(); // Piston down
+                
+                // Lock the wheels so we don't bounce off the match load bar
+                sbot_drive->setBrakeMode(pros::v5::MotorBrake::hold);
+                
+                printf("SBOT: Match Load Mode ON (Hold + Slow)\n");
+                sbot_master->rumble("."); 
+            } else {
+                // --- EXITING MATCH LOAD MODE ---
+                sbot_batch_loader->retract(); // Piston up
+                
+                // Free the wheels for smooth normal driving
+                sbot_drive->setBrakeMode(pros::v5::MotorBrake::coast);
+                
+                printf("SBOT: Match Load Mode OFF (Coast + Fast)\n");
+            }
+            fflush(stdout);
+        }
         // Ball handling mode toggles (run until stopped)
         // R1 = storage/intake mode (same motors as top-score but flap forced DOWN)
         // R2 = top-score mode (same motors but flap UP)

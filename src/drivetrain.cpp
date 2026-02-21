@@ -137,45 +137,58 @@ void SbotDrivetrain::splitArcadeControl(pros::Controller& master) {
     right_back.move(right_power);
 }
 
-void SbotDrivetrain::tankControl(pros::Controller& master) {
-    // Get joystick inputs for pure tank drive
-    int left = master.get_analog(SBOT_TANK_LEFT_STICK);
-    int right = master.get_analog(SBOT_TANK_RIGHT_STICK);
+// Modify the function signature to match the header
+void SbotDrivetrain::tankControl(pros::Controller& master, bool run_slow) {
+    
+    // 1. Get raw inputs
+    int raw_left = master.get_analog(SBOT_TANK_LEFT_STICK);
+    int raw_right = master.get_analog(SBOT_TANK_RIGHT_STICK);
 
-    // Step 1: Apply deadzone
-    left = applyDeadzone(left);
-    right = applyDeadzone(right);
+    // 2. Apply Deadzones & Curves
+    int left_in = applyCurve(applyDeadzone(raw_left));
+    int right_in = applyCurve(applyDeadzone(raw_right));
 
-    // Step 2: Apply squared curve
-    left = applyCurve(left);
-    right = applyCurve(right);
+    // 3. Separate Forward vs Turn
+    double forward = (left_in + right_in) / 2.0;
+    double turn = (left_in - right_in) / 2.0;
 
-    // Step 3: Scale by sensitivity
-    left = static_cast<int>(left * SBOT_TANK_SENSITIVITY);
-    right = static_cast<int>(right * SBOT_TANK_SENSITIVITY);
+    // 4. Reduce Turn Sensitivity (The permanent fix from before)
+    turn *= 0.5; // Keep this at your preferred turning feel
 
-    // Step 4: Clamp to valid range
-    if (left > 127) left = 127;
-    if (left < -127) left = -127;
-    if (right > 127) right = 127;
-    if (right < -127) right = -127;
+    // 5. Recombine
+    int final_left = static_cast<int>(forward + turn);
+    int final_right = static_cast<int>(forward - turn);
 
-    // Step 5: Apply slew rate limiting
-    left = applySlewRate(prev_left_cmd, left, 0);
-    right = applySlewRate(prev_right_cmd, right, 0);
+    // --- NEW: GLOBAL SLOW MODE ---
+    if (run_slow) {
+        final_left *= 0.5;  // Cut speed in half
+        final_right *= 0.5; // Cut speed in half
+    }
+    // -----------------------------
 
-    // Store for next iteration
-    prev_left_cmd = left;
-    prev_right_cmd = right;
+    // 6. Scale, Clamp, and Slew (Standard checks)
+    final_left = static_cast<int>(final_left * SBOT_TANK_SENSITIVITY);
+    final_right = static_cast<int>(final_right * SBOT_TANK_SENSITIVITY);
 
-    // Send commands to motors
-    left_front.move(left);
-    left_middle.move(left);
-    left_back.move(left);
+    if (final_left > 127) final_left = 127;
+    if (final_left < -127) final_left = -127;
+    if (final_right > 127) final_right = 127;
+    if (final_right < -127) final_right = -127;
 
-    right_front.move(right);
-    right_middle.move(right);
-    right_back.move(right);
+    final_left = applySlewRate(prev_left_cmd, final_left, 0);
+    final_right = applySlewRate(prev_right_cmd, final_right, 0);
+
+    prev_left_cmd = final_left;
+    prev_right_cmd = final_right;
+
+    // 7. Move Motors
+    left_front.move(final_left);
+    left_middle.move(final_left);
+    left_back.move(final_left);
+
+    right_front.move(final_right);
+    right_middle.move(final_right);
+    right_back.move(final_right);
 }
 
 void SbotDrivetrain::setBrakeMode(pros::v5::MotorBrake mode) {

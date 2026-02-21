@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <sys/_intsup.h>
 
 // ============================================================================
 // GLOBAL VARIABLE DEFINITIONS (declared as extern in .h)
@@ -56,6 +57,29 @@ void sbot_print_jerry_pose(const char* label) {
     const double jerry_y = sbot_jerry_start_y - pose.x;
     printf(
         "SBOT POSE JERRY [%s]: our(%.2f,%.2f,%.2f) => jerry(%.3f,%.3f)\n",
+        label,
+        pose.x,
+        pose.y,
+        pose.theta,
+        jerry_x,
+        jerry_y
+    );
+}
+
+void sbot_print_jerry_pose_rotated(const char* label) {
+    if (!sbot_chassis) return;
+    const auto pose = sbot_chassis->getPose();
+    // Inverse of sbot_from_jerry_rotated: rotate by +90°
+    // rotated_x = base_y, rotated_y = -base_x
+    // So, base_x = -rotated_y, base_y = rotated_x
+    // Jerry X = base_y + sbot_jerry_start_x
+    // Jerry Y = sbot_jerry_start_y - base_x
+    double base_x = -pose.y;
+    double base_y = pose.x;
+    double jerry_x = base_y + sbot_jerry_start_x;
+    double jerry_y = sbot_jerry_start_y - base_x;
+    printf(
+        "SBOT POSE JERRY ROTATED [%s]: our(%.2f,%.2f,%.2f) => jerry(%.3f,%.3f)\n",
         label,
         pose.x,
         pose.y,
@@ -177,6 +201,16 @@ SbotPoint sbot_from_jerry(double jerry_x, double jerry_y) {
     const double our_x = sbot_jerry_start_y - jerry_y;
     const double our_y = jerry_x - sbot_jerry_start_x;
     return {our_x, our_y};
+}
+
+SbotPoint sbot_from_jerry_rotated(double jerry_x, double jerry_y) {
+    // Step 1: Base conversion
+    const double base_x = sbot_jerry_start_y - jerry_y;
+    const double base_y = jerry_x - sbot_jerry_start_x;
+    // Step 2: Rotate by -90° to match robot orientation
+    //   rotated_x =  base_y
+    //   rotated_y = -base_x
+    return {base_y, -base_x};
 }
 
 SbotPoint sbot_mirror_point_y(const SbotPoint& p) {
@@ -458,26 +492,27 @@ void sbot_wait_until_pose_close_or_timeout_timed(
 // MOVEMENT PRIMITIVES
 // ============================================================================
 
-bool sbot_drive_to(const SbotPoint& p, uint32_t timeout_ms, bool mirrored_y, bool forwards) {
+bool sbot_drive_to(const SbotPoint& p, uint32_t timeout_ms, bool mirrored_y, bool forwards, float speed) {
     if (!sbot_chassis) return false;
     
     const SbotPoint target = mirrored_y ? sbot_mirror_point_y(p) : p;
     
     lemlib::MoveToPointParams params;
     params.forwards = forwards;
-    
-    sbot_chassis->moveToPoint(target.x, target.y, timeout_ms, params);
+    params.maxSpeed = static_cast<int>(speed);
+
+    sbot_chassis->moveToPoint(target.x, target.y, timeout_ms, params, true);
     return true;
 }
 
-bool sbot_turn_to(double heading_deg, uint32_t timeout_ms, bool mirrored_y) {
+bool sbot_turn_to(double heading_deg, uint32_t timeout_ms, bool mirrored_y, float speed) {
     if (!sbot_chassis) return false;
     
     const double target_heading = mirrored_y ? sbot_mirror_heading(heading_deg) : sbot_norm_heading(heading_deg);
     
     lemlib::TurnToHeadingParams params;
-    
-    sbot_chassis->turnToHeading(target_heading, timeout_ms, params);
+    params.maxSpeed = static_cast<int>(speed);
+    sbot_chassis->turnToHeading(target_heading, timeout_ms, params, true);
     return true;
 }
 
@@ -564,7 +599,7 @@ bool sbot_drive_relative(double distance_in, uint32_t timeout_ms, bool forwards)
     lemlib::MoveToPointParams params;
     params.forwards = forwards;
     
-    sbot_chassis->moveToPoint(target_x, target_y, timeout_ms, params);
+    sbot_chassis->moveToPoint(pose.x, pose.y, timeout_ms, params);
     return true;
 }
 

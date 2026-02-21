@@ -90,8 +90,10 @@
 
 // Color sorting and alliance color selection
 #define SBOT_COLOR_SORT_TOGGLE_BTN pros::E_CONTROLLER_DIGITAL_Y    // Enable/disable auto rejection
-#define SBOT_SET_RED_ALLIANCE_BTN  pros::E_CONTROLLER_DIGITAL_UP
-#define SBOT_SET_BLUE_ALLIANCE_BTN pros::E_CONTROLLER_DIGITAL_DOWN
+//#define SBOT_SET_RED_ALLIANCE_BTN  pros::E_CONTROLLER_DIGITAL_UP
+//#define SBOT_SET_BLUE_ALLIANCE_BTN pros::E_CONTROLLER_DIGITAL_DOWN
+#define SBOT_SLOW_MODE_BTN         pros::E_CONTROLLER_DIGITAL_UP
+
 
 // Pneumatic toggles (driver control)
 #define SBOT_GOAL_FLAP_TOGGLE_BTN  pros::E_CONTROLLER_DIGITAL_L1   // Toggle scoring flap + descore arm (moved from A)
@@ -108,7 +110,7 @@
 
 // Deadband and sensitivity for tank drive
 #define SBOT_JOYSTICK_DEADZONE     10
-#define SBOT_TANK_SENSITIVITY      1.0
+#define SBOT_TANK_SENSITIVITY      0.8
 
 // ========== RESPONSE CURVE CONTROL ==========
 // Squared curve gives fine control at low speeds but can be aggressive
@@ -142,7 +144,7 @@
 #define SBOT_REVERSAL_DEADBAND     3
 
 // Motor gearsets and brake modes
-#define SBOT_DRIVE_GEARSET         pros::v5::MotorGears::green
+#define SBOT_DRIVE_GEARSET         pros::v5::MotorGears::blue
 #define SBOT_DRIVE_BRAKE_MODE      pros::v5::MotorBrake::coast
 
 // Generic velocity limits (RPM)
@@ -152,7 +154,7 @@
 #define SBOT_INTAKE_FORWARD_SPEED        600   // Pull balls into robot
 #define SBOT_INTAKE_REVERSE_LOW_GOAL    -600   // Spit balls out low (much higher speed)
 
-#define SBOT_INDEXER_FORWARD_FEED       500   // Toward top goal
+#define SBOT_INDEXER_FORWARD_FEED       600   // Toward top goal
 #define SBOT_INDEXER_REVERSE_MIDDLE    -400   // Drop to middle goal / eject
 
 // Timing for button-driven scoring actions (ms)

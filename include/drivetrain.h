@@ -14,9 +14,10 @@ public:
 
     void arcadeTankControl(pros::Controller& master);
     void splitArcadeControl(pros::Controller& master);
-    void tankControl(pros::Controller& master);
+    void tankControl(pros::Controller& master, bool run_slow);
     void setBrakeMode(pros::v5::MotorBrake mode);
     void stop();
+    
 
 private:
     pros::Motor left_front;

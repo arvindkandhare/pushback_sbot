@@ -81,11 +81,11 @@ void initializeSbotLemLib() {
     sbot_vertical_tracking_wheel = new lemlib::TrackingWheel(
         sbot_vertical_encoder,
         lemlib::Omniwheel::NEW_2,  // Changed from NEW_275 - robot not going far enough means diameter too large
-        SBOT_TRACKING_WHEEL_DISTANCE
+        -0.55 // Lateral offset of the vertical tracking wheel from the robot's rotation center (inches). Positive is to the right, negative is to the left. This is a critical measurement for accurate turning. If you see Y drift during in-place turns (rectangle test), adjust this value. Experimental estimate from in-place turn calibration (Test: Turn): ~0.06". If turn-induced drift direction worsens, flip the sign.
     );
 
     sbot_odom_sensors = new lemlib::OdomSensors(
-        sbot_vertical_tracking_wheel, // vertical 1
+        nullptr,//sbot_vertical_tracking_wheel, // vertical 1
         nullptr,                      // vertical 2
         nullptr,                      // horizontal 1
         nullptr,                      // horizontal 2
@@ -97,13 +97,13 @@ void initializeSbotLemLib() {
     sbot_linear_controller = new lemlib::ControllerSettings(
         18,   // kP
         0,    // kI
-        100,   // kD
+        125,   // kD
         0,    // windup
         0.5,  // small error (in)
-        150,  // small error timeout (ms)
+        100,  // small error timeout (ms)
         1.0,  // large error (in)
-        300,  // large error timeout (ms)
-        50    // max acceleration (units/s^2) - limits how fast speed changes
+        150,  // large error timeout (ms)
+        2    // max acceleration (units/s^2) - limits how fast speed changes
               // Higher = faster but more tipping. 0 = unlimited. Try 30-80.
     );
 
@@ -113,9 +113,9 @@ void initializeSbotLemLib() {
         22.0, // kD
         0,    // windup
         1.0,  // small error (deg)
-        150,  // small error timeout (ms)
+        100,  // small error timeout (ms)
         3.0,  // large error (deg)
-        250,  // large error timeout (ms)
+        150,  // large error timeout (ms)
         40    // max acceleration (deg/s^2) - limits rotation speed changes
               // Higher = faster turns but more tipping. 0 = unlimited. Try 30-60.
     );

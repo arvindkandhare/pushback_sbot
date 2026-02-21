@@ -506,7 +506,7 @@ void sbot_run_match_auto(
                     const SbotPoint contact = sbot_apply_alliance_transform_only(t.mid_goal_contact, alliance_);
                     const double goal_heading_canonical = sbot_norm_heading(t.mid_goal_heading_deg);
                     mid_target_canonical = sbot_match_pose_from_back_contact(t.mid_goal_contact, goal_heading_canonical, SBOT_BACK_BUMPER_IN);
-                    mid_target = sbot_apply_alliance_transform_only(mid_target_canonical, alliance_);
+                    mid_target = t.mid_goal_approach;
                     printf(
                         "CENTER MIDDLE contact->pose: contact(%.2f,%.2f) heading=%.1f back=%.2f => pose(%.2f,%.2f)\n",
                         contact.x,
@@ -777,6 +777,8 @@ void sbot_run_match_auto(
                     );
                 }
 
+                tube_pose_target = sbot_from_jerry(t.tube1.x, t.tube1.y);  // OVERRIDE for testing specific target pose
+
                 // Use moveToPoint (not moveToPose) to drive straight — heading is already set from Stage 3.
                 {
                     lemlib::MoveToPointParams driveParams;
@@ -986,14 +988,14 @@ void sbot_run_match_auto(
                    RedLeft::LONG_GOAL_END_JERRY_X, RedLeft::LONG_GOAL_END_JERRY_Y);
 
             if (sbot_chassis) {
-                const SbotPoint target = sbot_apply_alliance_transform_only(long_goal_end_canonical, alliance_);
+                //const SbotPoint target = sbot_apply_alliance_transform_only(long_goal_end_canonical, alliance_);
                 const double target_heading = sbot_apply_alliance_transform_heading_only(180.0, alliance_);
                 lemlib::MoveToPoseParams params;
                 params.forwards = false;
                 params.maxSpeed = 90;
                 params.minSpeed = 0;
 
-                sbot_chassis->moveToPose(target.x, target.y, target_heading, 4000, params);
+                sbot_chassis->moveToPose(long_goal_end_canonical.x, long_goal_end_canonical.y, target_heading, 4000, params);
                 // Update intake/indexer during approach; stall-detect to exit early if stuck
                 const uint32_t approach_start = pros::millis();
                 auto last_pose = sbot_chassis->getPose();

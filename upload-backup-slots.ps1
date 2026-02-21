@@ -87,6 +87,27 @@ if ($Slot -gt 0) {
     Write-Host "Uploading single slot: $SlotName" -ForegroundColor Cyan
 }
 
+# Define the replacement here-string at the top level (column 0)
+$autonReplacementTemplate = @'
+void autonomous() {
+    printf("MARKER01\n");
+    printf("=== SBOT AUTONOMOUS() ENTER ===\n");
+    printf("=== SBOT AUTONOMOUS START ===\n");
+    printf("SBOT: HARDCODED BACKUP SLOT: __SLOTNAME__\n");
+    fflush(stdout);
+
+    // HARDCODED FOR BACKUP SLOT: __SLOTNAME__
+    __HARDCODEDCODE__
+    return;
+
+    printf("SBOT: Running RoboDash selector\n");
+    printf("SBOT: selector.run_auton()\n");
+    fflush(stdout);
+
+    selector.run_auton();
+}
+'@
+
 try {
     # Read original file content
     $originalContent = Get-Content $sourceFile -Raw
@@ -106,26 +127,8 @@ try {
             $modifiedContent = $originalContent.Replace($flagSearch, $flagReplace)
 
             # 2) Modify the autonomous() function to hardcode the autonomous mode
-            $searchPattern = 'void autonomous() {' + "`n" + '    printf("MARKER01\n");' + "`n" + '    printf("=== SBOT AUTONOMOUS() ENTER ===\n");' + "`n" + '    printf("=== SBOT AUTONOMOUS START ===\n");' + "`n" + '    printf("SBOT: Running RoboDash selector\n");' + "`n" + '    printf("SBOT: selector.run_auton()\n");' + "`n" + '    fflush(stdout);' + "`n" + "`n" + '    selector.run_auton();'
-            $replacement = @"
-void autonomous() {
-    printf("MARKER01\n");
-    printf("=== SBOT AUTONOMOUS() ENTER ===\n");
-    printf("=== SBOT AUTONOMOUS START ===\n");
-    printf("SBOT: HARDCODED BACKUP SLOT: $slotName\n");
-    fflush(stdout);
-
-    // HARDCODED FOR BACKUP SLOT: $slotName
-    $hardcodedCode
-    return;
-
-    printf("SBOT: Running RoboDash selector\n");
-    printf("SBOT: selector.run_auton()\n");
-    fflush(stdout);
-
-    selector.run_auton();
-"@
-            
+            $searchPattern = 'void autonomous() {' + "`n" + '    printf("MARKER01\n");' + "`n" + '    printf("=== SBOT AUTONOMOUS() ENTER ===\\n");' + "`n" + '    printf("=== SBOT AUTONOMOUS START ===\\n");' + "`n" + '    printf("SBOT: Running RoboDash selector\\n");' + "`n" + '    printf("SBOT: selector.run_auton()\\n");' + "`n" + '    fflush(stdout);' + "`n" + "`n" + '    selector.run_auton();'
+            $replacement = $autonReplacementTemplate.Replace('__SLOTNAME__', $slotName).Replace('__HARDCODEDCODE__', $hardcodedCode)
             $modifiedContent = $modifiedContent.Replace($searchPattern, $replacement)
 
             # Write modified content
